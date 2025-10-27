@@ -64,6 +64,10 @@ def whatsapp_webhook(request):
                                         response = client.models.generate_content(
                                         model="models/gemini-robotics-er-1.5-preview",
                                         contents=text_body,
+                                        config=
+                                        {
+                                            "system_instruction": settings.SYSTEM_PROMPT,
+                                        }
                                         )
                                     
                                         #if "hola" in text_body or "saludo" in text_body:
