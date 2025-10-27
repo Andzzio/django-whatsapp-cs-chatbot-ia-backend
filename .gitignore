@@ -1,0 +1,8 @@
+# Virtual env
+venv/
+# SECRET KEYS
+.env
+# DATA BASE TEMP
+db.sqlite3
+# CACHE
+__pycache__
