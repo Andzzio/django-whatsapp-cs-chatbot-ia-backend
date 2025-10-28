@@ -35,6 +35,7 @@ ID_CUENTA = config("ID_CUENTA")
 VERIFY_TOKEN = config("VERIFY_TOKEN")
 WHATSAPP_URL = f"https://graph.facebook.com/v20.0/{ID_NUMERO}/messages"
 SYSTEM_PROMPT = config("SYSTEM_PROMPT")
+CATALOG_ID = config("CATALOG_ID")
 
 # Application definition
 

@@ -62,10 +62,10 @@ def whatsapp_webhook(request):
                                         text_body = message_event["text"]["body"].lower().strip()
 
                                         response = client.models.generate_content(
-                                        model="models/gemini-robotics-er-1.5-preview",
+                                        model="models/gemini-2.0-flash-lite",
                                         contents=text_body,
                                         config={
-                                            "system_instruction": settings.SYSTEM_PROMPT
+                                            "system_instruction": settings.SYSTEM_PROMPT,
                                         }
                                         )
                                         send_whatsapp_message(sender_id, response.text)
