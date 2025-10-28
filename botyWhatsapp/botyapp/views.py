@@ -5,6 +5,27 @@ from django.conf import settings
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from google import genai
+from google.genai.types import Tool, FunctionDeclaration, Schema, Type
+from . import services
+
+CATALOGO_TOOL = Tool(
+    function_declarations=[
+        FunctionDeclaration(
+            name="consultar_catalogo",
+            description="Busca el precio, stock, descripción, o tallas de un producto específico o palabra clave en el catálogo de la empresa. Debe usarse siempre que el usuario pregunte por detalles del producto.",
+            parameters=Schema(
+                type=Type.OBJECT,
+                properties={
+                    "nombre_producto": Schema(
+                        type=Type.STRING,
+                        description="Nombre exacto o palabra clave a buscar. Debe estar corregido ortográficamente y, si es necesario, traducido al idioma del catálogo (ej. 'dining chair')."
+                    )
+                },
+                required=["nombre_producto"],
+            ),
+        )
+    ]
+)
 
 IA_KEY = settings.IA_TOKEN
 
@@ -62,20 +83,55 @@ def whatsapp_webhook(request):
                                         text_body = message_event["text"]["body"].lower().strip()
 
                                         response = client.models.generate_content(
-                                        model="models/gemini-robotics-er-1.5-preview",
-                                        contents=text_body,
-                                        config=
-                                        {
-                                            "system_instruction": settings.SYSTEM_PROMPT,
-                                        }
+                                            model="models/gemini-2.5-flash-lite",
+                                            contents=text_body,
+                                            config=
+                                            {
+                                                "system_instruction": settings.SYSTEM_PROMPT,
+                                                "tools": [CATALOGO_TOOL]
+                                            },
+                                        
                                         )
-                                    
-                                        #if "hola" in text_body or "saludo" in text_body:
-                                         #   respuesta = "¡Hola! Soy el bot prototipo Boty - Shurumba" 
-                                        #else:
-                                          #s  respuesta = f"Disculpa no entendí tu mensaje {text_body}"
-                                        send_whatsapp_message(sender_id, response.text)
-                                        print(f"Mensaje enviado:{response.text}")
+                                        if response.function_calls:
+                                            print("SE ESTÁ EJECUTANDO LA LLAMADA DE CONSULTA DE BASE DE DATOS")
+                                            funcion_solicitada_object = response.candidates[0].content.parts[0].function_call
+                                            call = response.function_calls[0]
+                                            nombre_a_buscar = call.args.get("nombre_producto")
+                                            
+                                            datos_db = services.consultar_catalogo(nombre_a_buscar)
+                                            
+                                            
+                                            full_context_contents = [
+                                          
+                                                {"role": "user", "parts": [{"text": text_body}]},
+                                              
+                                                {"role": "model", "parts": [{"functionCall": funcion_solicitada_object}]},
+
+                                               
+                                                {"role": "function", "parts": [
+                                                    {"functionResponse": 
+                                                        {"name": "consultar_catalogo", "response": datos_db}
+                                                    }
+                                                    ]}
+                                                ]
+                                            respuesta_final = client.models.generate_content(
+                                                model="models/gemini-2.5-flash-lite",
+                                                contents=full_context_contents,
+                                                config=
+                                                {
+                                                    "system_instruction": settings.SYSTEM_PROMPT,
+                                                    "tools": [CATALOGO_TOOL]
+                                                },
+                                                
+                                            )
+                                            response_text = respuesta_final.text
+                                        else:
+                                            print("SE ESTÁ EJECUTANDO EL MODO SIN CONSULTA DE BASE DE DATOS")
+                                            response_text = response.text
+                                        
+                                        send_whatsapp_message(sender_id, response_text)
+                                        print(f"Mensaje enviado:{response_text}")
+                                        return JsonResponse({"status": "ok"}, status=200)
                         else:
                             print(f"Campo recibido: {change.get('field')}")
             else:
