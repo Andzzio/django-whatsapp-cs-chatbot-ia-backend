@@ -19,6 +19,6 @@ from django.urls import path
 import botyapp.views
 
 urlpatterns = [
-    #path('admin/', admin.site.urls),
+    path('admin/', admin.site.urls),
     path("webhook/", botyapp.views.whatsapp_webhook, name="whatsapp_webhook_meta"),
 ]
