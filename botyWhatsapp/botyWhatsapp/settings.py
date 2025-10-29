@@ -28,6 +28,7 @@ DEBUG = config("DEBUG", default=False, cast=bool)
 
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="127.0.0.1").split(",")
 
+OWNER_PHONE_NUMBER = config("OWNER_PHONE_NUMBER")
 IA_TOKEN = config("IA_TOKEN")
 WHATSAPP_API_TOKEN = config("WHATSAPP_API_TOKEN")
 ID_NUMERO = config("ID_NUMERO")
