@@ -29,7 +29,7 @@ def button_tool():
             ),
             types.FunctionDeclaration(
                 name="show_contact",
-                description="Mostrarás el contacto del dueño cuando el usuario solicite hablar con el dueño o una persona real",
+                description="Mostrarás el contacto del dueño, gerente, encargado, etc cuando el usuario solicite hablar con el dueño o una persona real",
                 parameters=types.Schema(
                     type=types.Type.OBJECT,
                     properties={},
@@ -438,9 +438,9 @@ def send_contact_message(sender_id):
                 },
                 "phones": [
                     {
-                        "phone": "+51930289278",
+                        "phone": f"+{settings.OWNER_PHONE_NUMBER}",
                         "type": "Mobile",
-                        "wa_id": "51930289278"
+                        "wa_id": settings.OWNER_PHONE_NUMBER
                     }
                 ]
             }
