@@ -26,6 +26,15 @@ def button_tool():
                     properties={},
                     required=[]
                 )
+            ),
+            types.FunctionDeclaration(
+                name="show_contact",
+                description="Mostrarás el contacto del dueño cuando el usuario solicite hablar con el dueño o una persona real",
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={},
+                    required=[]
+                )
             )
         ]
     )
@@ -411,6 +420,41 @@ def send_product_list_message(receptor_wsp_id, catalog_id, sections, header_text
             print(f"Detalles del error: {e.response.text}")
         return None
 
+def send_contact_message(sender_id):
+    headers={
+        "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    data={
+        "messaging_product": "whatsapp",
+        "to": sender_id,
+        "type": "contacts",
+        "contacts": [
+            {
+                "name": {
+                    "formatted_name": "Freddy Sanval",
+                    "first_name": "Freddy",
+                    "last_name": "Sanval",
+                },
+                "phones": [
+                    {
+                        "phone": "+51930289278",
+                        "type": "Mobile",
+                        "wa_id": "51930289278"
+                    }
+                ]
+            }
+        ]
+    }
+    try:
+        response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
+        response.raise_for_status()
+        print(f"Contacto enviado exitosamente: {response.json()}")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error al enviar contacto de Whatsapp {e}")
+        return None
+
 def send_whatsapp_message(receptor_wsp_id, text_answer):
     headers={
         "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
@@ -494,10 +538,18 @@ def whatsapp_webhook(request):
                                                             "¡Aquí está nuestro catálogo completo! 🛍️✨ Explora todos nuestros productos."
                                                         )
                                                         break
+                                                    elif function_name == "show_contact":
+                                                        print("✅ ACCEDIENDO AL CONTACTO")
+                                                        send_whatsapp_message(
+                                                            sender_id,
+                                                            "¡Con gusto linda!❤️\n\nEntiendo que deseas hablar directamente con nuestro encargado.\nÉl estará encantado de ayudarte con lo que necesites, ya sea una consulta especial o asesoría personalizada.\n\n✨Gracias por confiar en nosotros. Tu estilo merece atención directa\nCon cariño,\nTu equipo de moda femenina 💃"
+                                                            )
+                                                        send_contact_message(sender_id)
+                                                        break
                                             
                                         # Si no hay function call, envía la respuesta de texto normal
                                         if not has_function_call:
-                                            print("📝 NO ACCEDIENDO AL CATALOGO - Respuesta normal")
+                                            print("📝 RESPUESTA TEXTUAL")
                                             # Obtén el texto de manera segura
                                             response_text = ""
                                             if response.candidates:
