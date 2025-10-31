@@ -79,6 +79,25 @@ def sync_catalog_products(catalog_id):
             print(f"Detalles: {e.response.text}")
         return {}
 
+def save_user_name(phone_number, client_name = None):
+    cache_key = f"Client_{phone_number}"
+    client_data = cache.get(cache_key, {})
+    if client_name:
+        client_data['client_name'] = client_name
+    client_data['phone_number'] = phone_number
+    
+    cache.set(cache_key, client_data, timeout=60*60*24*30)
+    print(f"Cliente Guardado {client_data}")
+    return client_data
+    
+def get_user_name(phone_number):
+    cache_key = f"Client_{phone_number}"
+    client_data = cache.get(cache_key)
+    if client_data and client_data.get('client_name'):
+        return client_data['client_name']
+    else:
+        return "Cliente"
+
 def notify_owner(order_data, sender_id, total_price, currency):
     """
     Notifica al dueño sobre una nueva orden recibida
@@ -95,7 +114,7 @@ def notify_owner(order_data, sender_id, total_price, currency):
     
     # Construir mensaje para el dueño
     owner_message = "🔔 *NUEVA ORDEN RECIBIDA*\n\n"
-    owner_message += f"👤 *Cliente:* {sender_id}\n"
+    owner_message += f"👤 *Cliente:* {get_user_name(sender_id)}\n"
     owner_message += f"📋 *Catalog ID:* {catalog_id}\n\n"
     owner_message += f"📦 *PRODUCTOS:*\n\n"
     
@@ -434,22 +453,26 @@ def whatsapp_webhook(request):
                     for change in entry.get("changes", []):
                         if change.get("field") == "messages":
                             value = change.get("value", {})
-                            
+                            for contact in value.get("contacts", []):
+                                client_number = contact.get("wa_id")
+                                profile = contact.get("profile", {})
+                                client_name = profile.get("name")
+                                #print(f"🗣️🗣️NOMBRE DEL CLIENTE: {client_name}")
+                                #print(f"🗣️🗣️NUMERO DEL CLIENTE: {client_number}")
+                                save_user_name(client_number, client_name)
                             if "messages" in value:
                                 print(f"📨 Datos del mensaje: {json.dumps(value, indent=2)}")
                                 for message_event in value.get("messages", []):
                                     message_type = message_event.get("type")
                                     sender_id = message_event["from"]
-                                    
-
+                                    print(f"RECUPERANDO EL NOMBRE DEL CLIENTE {get_user_name(sender_id)}")
                                     if message_type == "order":
                                         print("🛒 ORDEN DETECTADA")
                                         order_data = message_event.get("order", {})
-                                        process_order(order_data, sender_id)
                                     elif message_type == "text":
                                         text_body = message_event["text"]["body"].lower().strip()
                                         response = client.models.generate_content(
-                                        model="models/gemini-2.5-flash",
+                                        model="models/gemini-2.0-flash-lite",
                                         contents=text_body,
                                         config={
                                             "system_instruction": settings.SYSTEM_PROMPT,
