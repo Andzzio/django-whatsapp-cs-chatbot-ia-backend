@@ -513,6 +513,7 @@ def whatsapp_webhook(request):
                                     if message_type == "order":
                                         print("🛒 ORDEN DETECTADA")
                                         order_data = message_event.get("order", {})
+                                        process_order(order_data, sender_id)
                                     elif message_type == "text":
                                         text_body = message_event["text"]["body"].lower().strip()
                                         response = client.models.generate_content(
