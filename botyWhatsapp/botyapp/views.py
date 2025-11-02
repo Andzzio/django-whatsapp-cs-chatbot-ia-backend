@@ -88,7 +88,7 @@ def sync_catalog_products(catalog_id):
             print(f"Detalles: {e.response.text}")
         return {}
 
-def save_user_name(phone_number, client_name = None):
+def save_user_data(phone_number, client_name = None):
     cache_key = f"Client_{phone_number}"
     client_data = cache.get(cache_key, {})
     if client_name:
@@ -503,7 +503,7 @@ def whatsapp_webhook(request):
                                 client_name = profile.get("name")
                                 #print(f"🗣️🗣️NOMBRE DEL CLIENTE: {client_name}")
                                 #print(f"🗣️🗣️NUMERO DEL CLIENTE: {client_number}")
-                                save_user_name(client_number, client_name)
+                                save_user_data(client_number, client_name)
                             if "messages" in value:
                                 print(f"📨 Datos del mensaje: {json.dumps(value, indent=2)}")
                                 for message_event in value.get("messages", []):
