@@ -29,7 +29,7 @@ def button_tool():
             ),
             types.FunctionDeclaration(
                 name="show_contact",
-                description="Mostrarás el contacto del dueño, gerente, encargado, etc cuando el usuario solicite hablar con el dueño o una persona real",
+                description="Mostrarás el contacto del dueño, agente, gerente, encargado, etc cuando el usuario solicite hablar con el dueño, una persona real, agente, gerente, encargado, etc.",
                 parameters=types.Schema(
                     type=types.Type.OBJECT,
                     properties={},
@@ -527,11 +527,9 @@ def whatsapp_webhook(request):
                                         process_order(order_data, sender_id)
                                     elif message_type == "image":
                                         print("🌄 IMAGEN DETECTADA")
-                                        print("✅ ACCEDIENDO AL CATALOGO")
-                                        send_catalog_message(
-                                            sender_id, 
-                                            "¡Puedes corrobar si el producto está en nuestro catálogo!\n🛍️✨ Explora todos nuestros productos."
-                                        )
+                                        mess = "Hola linda ✨, te gustaría que te pase el catálogo para que hagas la compra desde ahí o quieres que te pase con uno de nuestros agentes especializados? 😌"
+                                        save_user_data(phone_number=sender_id, context=mess)
+                                        send_whatsapp_message(sender_id, mess)
                                     elif message_type == "text":
                                         text_body = message_event["text"]["body"].lower().strip()
                                         response = client.models.generate_content(
