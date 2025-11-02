@@ -88,11 +88,13 @@ def sync_catalog_products(catalog_id):
             print(f"Detalles: {e.response.text}")
         return {}
 
-def save_user_data(phone_number, client_name = None):
+def save_user_data(phone_number, client_name = None, context = None):
     cache_key = f"Client_{phone_number}"
     client_data = cache.get(cache_key, {})
     if client_name:
         client_data['client_name'] = client_name
+    if context:
+        client_data['context'] = context
     client_data['phone_number'] = phone_number
     
     cache.set(cache_key, client_data, timeout=60*60*24*30)
@@ -106,6 +108,14 @@ def get_user_name(phone_number):
         return client_data['client_name']
     else:
         return "Cliente"
+
+def get_context(phone_number):
+    cache_key = f"Client_{phone_number}"
+    client_data = cache.get(cache_key)
+    if client_data and client_data.get('context'):
+        return f"CONTEXTO: {client_data['context']}\n PREGUNTA:"
+    else:
+        return ""
 
 def notify_owner(order_data, sender_id, total_price, currency):
     """
@@ -503,7 +513,7 @@ def whatsapp_webhook(request):
                                 client_name = profile.get("name")
                                 #print(f"🗣️🗣️NOMBRE DEL CLIENTE: {client_name}")
                                 #print(f"🗣️🗣️NUMERO DEL CLIENTE: {client_number}")
-                                save_user_data(client_number, client_name)
+                                save_user_data(phone_number=client_number, client_name=client_name)
                             if "messages" in value:
                                 print(f"📨 Datos del mensaje: {json.dumps(value, indent=2)}")
                                 for message_event in value.get("messages", []):
@@ -518,7 +528,7 @@ def whatsapp_webhook(request):
                                         text_body = message_event["text"]["body"].lower().strip()
                                         response = client.models.generate_content(
                                         model="models/gemini-2.0-flash-lite",
-                                        contents=text_body,
+                                        contents=get_context(sender_id) + text_body,
                                         config={
                                             "system_instruction": settings.SYSTEM_PROMPT,
                                             "tools": [button_tool()]
@@ -560,6 +570,7 @@ def whatsapp_webhook(request):
                                                 
                                             if response_text:
                                                 send_whatsapp_message(sender_id, response_text)
+                                                save_user_data(phone_number=sender_id, context=response_text)
                                                 print(f"Mensaje enviado: {response_text}")
                                             else:
                                                 print("⚠️ No se pudo extraer texto de la respuesta")
