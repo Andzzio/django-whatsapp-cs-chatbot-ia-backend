@@ -134,6 +134,7 @@ def notify_owner(order_data, sender_id, total_price, currency):
     # Construir mensaje para el dueño
     owner_message = "🔔 *NUEVA ORDEN RECIBIDA*\n\n"
     owner_message += f"👤 *Cliente:* {get_user_name(sender_id)}\n"
+    owner_message += f"📱 *Número:* {sender_id}\n"
     owner_message += f"📋 *Catalog ID:* {catalog_id}\n\n"
     owner_message += f"📦 *PRODUCTOS:*\n\n"
     
@@ -524,6 +525,13 @@ def whatsapp_webhook(request):
                                         print("🛒 ORDEN DETECTADA")
                                         order_data = message_event.get("order", {})
                                         process_order(order_data, sender_id)
+                                    elif message_type == "image":
+                                        print("🌄 IMAGEN DETECTADA")
+                                        print("✅ ACCEDIENDO AL CATALOGO")
+                                        send_catalog_message(
+                                            sender_id, 
+                                            "¡Puedes corrobar si el producto está en nuestro catálogo!\n🛍️✨ Explora todos nuestros productos."
+                                        )
                                     elif message_type == "text":
                                         text_body = message_event["text"]["body"].lower().strip()
                                         response = client.models.generate_content(
