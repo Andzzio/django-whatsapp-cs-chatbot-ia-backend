@@ -9,6 +9,7 @@ from google.genai import types
 from django.core.cache import cache
 from datetime import timedelta
 import pytz
+from botyWhatsapp.logger import log
 
 IA_KEY = settings.IA_TOKEN
 
@@ -84,13 +85,13 @@ def sync_catalog_products(catalog_id):
         
         # Guardar en caché por 1 hora
         cache.set(f"catalog_products_{catalog_id}", products_dict, timeout=3600)
-        print(f"✅ {len(products_dict)} productos sincronizados y guardados en caché")
+        log.debug(f"✅ {len(products_dict)} productos sincronizados y guardados en caché")
         return products_dict
         
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error sincronizando catálogo: {e}")
+        log.error(f"❌ Error sincronizando catálogo: {e}")
         if hasattr(e, 'response') and e.response:
-            print(f"Detalles: {e.response.text}")
+            log.error(f"Detalles: {e.response.text}")
         return {}
 
 def save_user_data(phone_number, client_name = None, context = None, image_id = None):
@@ -105,7 +106,7 @@ def save_user_data(phone_number, client_name = None, context = None, image_id = 
     client_data['phone_number'] = phone_number
     
     cache.set(cache_key, client_data, timeout=60*60*24*30)
-    print(f"Cliente Guardado {client_data}")
+    log.debug(f"Cliente Guardado {client_data}")
     return client_data
     
 def get_user_name(phone_number):
@@ -180,7 +181,7 @@ def notify_owner(order_data, sender_id, total_price, currency):
     # Enviar al número del dueño
     owner_phone = settings.OWNER_PHONE_NUMBER
     send_whatsapp_message(owner_phone, owner_message)
-    print(f"✅ Notificación enviada al dueño: {owner_phone}")
+    log.debug(f"✅ Notificación enviada al dueño: {owner_phone}")
 
 def get_current_time():
     """Obtiene la hora actual formateada"""
@@ -201,17 +202,17 @@ def get_product_info(catalog_id, product_retailer_id):
     
     # Si no está en caché, sincronizar
     if products_dict is None:
-        print(f"📥 Sincronizando productos del catálogo {catalog_id}...")
+        log.debug(f"📥 Sincronizando productos del catálogo {catalog_id}...")
         products_dict = sync_catalog_products(catalog_id)
     
     # Buscar el producto
     product_info = products_dict.get(product_retailer_id)
     
     if product_info:
-        print(f"✅ Producto encontrado: {product_info['name']}")
+        log.debug(f"✅ Producto encontrado: {product_info['name']}")
         return product_info
     else:
-        print(f"⚠️ Producto no encontrado: {product_retailer_id}")
+        log.error(f"⚠️ Producto no encontrado: {product_retailer_id}")
         return {
             "name": f"Producto {product_retailer_id}",
             "retailer_id": product_retailer_id
@@ -245,12 +246,12 @@ def send_catalog_message(receptor_wsp_id, body_text="¡Mira nuestro catálogo! �
     try:
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
-        print(f"✅ Catálogo enviado exitosamente: {response.json()}")
+        log.debug(f"✅ Catálogo enviado exitosamente: {response.json()}")
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error al enviar catálogo: {e}")
+        log.error(f"❌ Error al enviar catálogo: {e}")
         if hasattr(e.response, 'text'):
-            print(f"Detalles del error: {e.response.text}")
+            log.error(f"Detalles del error: {e.response.text}")
         return None
 
 def process_order(order_data, sender_id):
@@ -267,11 +268,11 @@ def process_order(order_data, sender_id):
         product_items = order_data.get("product_items", [])
         text = order_data.get("text", "")  # Nota o comentario del cliente
         
-        print(f"🛒 NUEVA ORDEN RECIBIDA")
-        print(f"📋 Catalog ID: {catalog_id}")
-        print(f"👤 Cliente: {sender_id}")
-        print(f"💬 Nota del cliente: {text}")
-        print(f"📦 Productos:")
+        log.debug(f"🛒 NUEVA ORDEN RECIBIDA")
+        log.debug(f"📋 Catalog ID: {catalog_id}")
+        log.debug(f"👤 Cliente: {sender_id}")
+        log.debug(f"💬 Nota del cliente: {text}")
+        log.debug(f"📦 Productos:")
         
         total_items = 0
         total_price = 0
@@ -284,7 +285,7 @@ def process_order(order_data, sender_id):
             currency = item.get("currency", "PEN")
             
             # 🔍 Obtener información del producto desde la API
-            print(f"🔍 Consultando producto {idx}/{len(product_items)}: {product_retailer_id}")
+            log.debug(f"🔍 Consultando producto {idx}/{len(product_items)}: {product_retailer_id}")
             product_info = get_product_info(catalog_id, product_retailer_id)
             product_name = product_info["name"]
             
@@ -292,10 +293,10 @@ def process_order(order_data, sender_id):
             total_items += quantity
             total_price += subtotal
             
-            print(f"  ✓ Nombre: {product_name}")
-            print(f"  ✓ Cantidad: {quantity}")
-            print(f"  ✓ Precio unitario: {currency} {item_price:.2f}")
-            print(f"  ✓ Subtotal: {currency} {subtotal:.2f}\n")
+            log.debug(f"  ✓ Nombre: {product_name}")
+            log.debug(f"  ✓ Cantidad: {quantity}")
+            log.debug(f"  ✓ Precio unitario: {currency} {item_price:.2f}")
+            log.debug(f"  ✓ Subtotal: {currency} {subtotal:.2f}\n")
             
             # Formatear el resumen para WhatsApp
             order_summary += f"{idx}. *{product_name}*\n"
@@ -321,9 +322,9 @@ def process_order(order_data, sender_id):
         
         send_whatsapp_message(sender_id, confirmation_message)
         
-        print(f"✅ Orden procesada exitosamente")
-        print(f"💰 Total: {currency} {total_price:.2f}")
-        print(f"{'='*50}\n")
+        log.debug(f"✅ Orden procesada exitosamente")
+        log.debug(f"💰 Total: {currency} {total_price:.2f}")
+        log.debug(f"{'='*50}\n")
         
         # Aquí puedes guardar la orden en tu base de datos
         # save_order_to_database(sender_id, order_data, product_info_list, total_price)
@@ -333,9 +334,9 @@ def process_order(order_data, sender_id):
         
         return True
     except Exception as e:
-        print(f"❌ Error procesando orden: {e}")
+        log.error(f"❌ Error procesando orden: {e}")
         import traceback
-        traceback.print_exc()
+        traceback.log.debug_exc()
         
         # Enviar mensaje de error al cliente
         send_whatsapp_message(
@@ -381,12 +382,12 @@ def send_product_message(receptor_wsp_id, catalog_id, product_retailer_id, body_
     try:
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
-        print(f"✅ Producto enviado exitosamente: {response.json()}")
+        log.debug(f"✅ Producto enviado exitosamente: {response.json()}")
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error al enviar producto: {e}")
+        log.error(f"❌ Error al enviar producto: {e}")
         if hasattr(e.response, 'text'):
-            print(f"Detalles del error: {e.response.text}")
+            log.error(f"Detalles del error: {e.response.text}")
         return None
 
 def send_product_list_message(receptor_wsp_id, catalog_id, sections, header_text="Nuestros Productos", body_text="Elige lo que más te guste"):
@@ -438,12 +439,12 @@ def send_product_list_message(receptor_wsp_id, catalog_id, sections, header_text
     try:
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
-        print(f"✅ Lista de productos enviada exitosamente: {response.json()}")
+        log.debug(f"✅ Lista de productos enviada exitosamente: {response.json()}")
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error al enviar lista de productos: {e}")
+        log.error(f"❌ Error al enviar lista de productos: {e}")
         if hasattr(e.response, 'text'):
-            print(f"Detalles del error: {e.response.text}")
+            log.error(f"Detalles del error: {e.response.text}")
         return None
 
 def send_contact_message(sender_id):
@@ -475,10 +476,10 @@ def send_contact_message(sender_id):
     try:
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
-        print(f"Contacto enviado exitosamente: {response.json()}")
+        log.debug(f"Contacto enviado exitosamente: {response.json()}")
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Error al enviar contacto de Whatsapp {e}")
+        log.error(f"Error al enviar contacto de Whatsapp {e}")
         return None
 
 def send_button_catalog_agent(sender_id, message):
@@ -520,10 +521,10 @@ def send_button_catalog_agent(sender_id, message):
     try:
         response = requests.post(settings.WHATSAPP_URL, headers=headers, json=data)
         response.raise_for_status()
-        print(f"MENSAJE DE BOTONES ENVIADO CON ÉXITO")
+        log.debug(f"MENSAJE DE BOTONES ENVIADO CON ÉXITO")
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Ocurrió un error al enviar el mensaje {e}")
+        log.error(f"Ocurrió un error al enviar el mensaje {e}")
         return None
 
 def send_image(sender_id, image_id):
@@ -543,11 +544,11 @@ def send_image(sender_id, image_id):
     try:
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
-        print(f"Imagen enviada exitosamente: {response.json()}")
+        log.debug(f"Imagen enviada exitosamente: {response.json()}")
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Error al enviar imagen de Whatsapp {e}")
-        print(f"❌ Respuesta del servidor: {e.response.text if e.response else 'Sin respuesta'}")
+        log.error(f"Error al enviar imagen de Whatsapp {e}")
+        log.error(f"❌ Respuesta del servidor: {e.response.text if e.response else 'Sin respuesta'}")
         return None
 
 def send_whatsapp_message(receptor_wsp_id, text_answer):
@@ -566,11 +567,11 @@ def send_whatsapp_message(receptor_wsp_id, text_answer):
     try:
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
-        print(f"Mensaje enviado exitosamente: {response.json()}")
+        log.debug(f"Mensaje enviado exitosamente: {response.json()}")
         return response.json()
     except requests.exceptions.RequestException as e:
-        print(f"Error al enviar mensaje de Whatsapp {e}")
-        print(f"❌ Respuesta del servidor: {e.response.text if e.response else 'Sin respuesta'}")
+        log.error(f"Error al enviar mensaje de Whatsapp {e}")
+        log.error(f"❌ Respuesta del servidor: {e.response.text if e.response else 'Sin respuesta'}")
         return None
 @csrf_exempt
 def whatsapp_webhook(request):
@@ -581,7 +582,7 @@ def whatsapp_webhook(request):
         
         if mode and token:
             if mode == "subscribe" and token == settings.VERIFY_TOKEN:
-                print("WEBHOOK_verified")
+                log.debug("WEBHOOK_verified")
                 return HttpResponse(challenge, status=200)
             else:
                 return HttpResponse("Verification token mismatch", status=403)
@@ -597,21 +598,21 @@ def whatsapp_webhook(request):
                                 client_number = contact.get("wa_id")
                                 profile = contact.get("profile", {})
                                 client_name = profile.get("name")
-                                #print(f"🗣️🗣️NOMBRE DEL CLIENTE: {client_name}")
-                                #print(f"🗣️🗣️NUMERO DEL CLIENTE: {client_number}")
+                                #log.debug(f"🗣️🗣️NOMBRE DEL CLIENTE: {client_name}")
+                                #log.debug(f"🗣️🗣️NUMERO DEL CLIENTE: {client_number}")
                                 save_user_data(phone_number=client_number, client_name=client_name)
                             if "messages" in value:
-                                print(f"📨 Datos del mensaje: {json.dumps(value, indent=2)}")
+                                log.debug(f"📨 Datos del mensaje: {json.dumps(value, indent=2)}")
                                 for message_event in value.get("messages", []):
                                     message_type = message_event.get("type")
                                     sender_id = message_event["from"]
-                                    print(f"RECUPERANDO EL NOMBRE DEL CLIENTE {get_user_name(sender_id)}")
+                                    log.debug(f"RECUPERANDO EL NOMBRE DEL CLIENTE {get_user_name(sender_id)}")
                                     if message_type == "order":
-                                        print("🛒 ORDEN DETECTADA")
+                                        log.debug("🛒 ORDEN DETECTADA")
                                         order_data = message_event.get("order", {})
                                         process_order(order_data, sender_id)
                                     elif message_type == "image":
-                                        print("🌄 IMAGEN DETECTADA")
+                                        log.debug("🌄 IMAGEN DETECTADA")
                                         image = message_event.get("image")
                                         image_id = image.get("id")
                                         save_user_data(phone_number=sender_id, image_id=image_id)
@@ -623,7 +624,7 @@ def whatsapp_webhook(request):
                                         button_reply = interactive.get("button_reply")
                                         button_id = button_reply.get("id")
                                         if button_id == "button1":
-                                            print("✅ ACCEDIENDO AL CONTACTO")
+                                            log.debug("✅ ACCEDIENDO AL CONTACTO")
                                             send_whatsapp_message(
                                                 sender_id,
                                                 "¡Con gusto linda!❤️\n\nEntiendo que deseas hablar directamente con nuestro encargado.\nÉl estará encantado de ayudarte con lo que necesites, ya sea una consulta especial o asesoría personalizada.\n\n✨Gracias por confiar en nosotros. Tu estilo merece atención directa\nCon cariño,\nTu equipo de moda femenina 💃"
@@ -631,12 +632,12 @@ def whatsapp_webhook(request):
                                             send_contact_message(sender_id)
                                             notify = f"*NOTIFICACIÓN DE SOLICITUD DE AYUDA POR CLIENTE*\n- NUMERO DEL CLIENTE: {sender_id}\n- NOMBRE DEL CLIENTE: {get_user_name(sender_id)}"
                                             send_whatsapp_message(settings.OWNER_PHONE_NUMBER, notify)
-                                            print(f"MENSAJE ENVIADO EXITOSAMENTE: {notify}")
+                                            log.debug(f"MENSAJE ENVIADO EXITOSAMENTE: {notify}")
 
                                             send_image(settings.OWNER_PHONE_NUMBER, get_image_id(sender_id))
-                                            print("IMAGEN ENVIADA EXITOSAMENTE")
+                                            log.debug("IMAGEN ENVIADA EXITOSAMENTE")
                                         if button_id == "button2":
-                                            print("✅ ACCEDIENDO AL CATALOGO")
+                                            log.debug("✅ ACCEDIENDO AL CATALOGO")
                                             send_catalog_message(
                                                 sender_id, 
                                                 "¡Aquí está nuestro catálogo completo! 🛍️✨ Explora todos nuestros productos."
@@ -658,17 +659,17 @@ def whatsapp_webhook(request):
                                                 if hasattr(part, 'function_call') and part.function_call:
                                                     has_function_call = True
                                                     function_name = part.function_call.name
-                                                    print(f"🔧 Function call detectado: {function_name}")
+                                                    log.debug(f"🔧 Function call detectado: {function_name}")
                                                         
                                                     if function_name == "show_catalog":
-                                                        print("✅ ACCEDIENDO AL CATALOGO")
+                                                        log.debug("✅ ACCEDIENDO AL CATALOGO")
                                                         send_catalog_message(
                                                             sender_id, 
                                                             "¡Aquí está nuestro catálogo completo! 🛍️✨ Explora todos nuestros productos."
                                                         )
                                                         break
                                                     elif function_name == "show_contact":
-                                                        print("✅ ACCEDIENDO AL CONTACTO")
+                                                        log.debug("✅ ACCEDIENDO AL CONTACTO")
                                                         send_whatsapp_message(
                                                             sender_id,
                                                             "¡Con gusto linda!❤️\n\nEntiendo que deseas hablar directamente con nuestro encargado.\nÉl estará encantado de ayudarte con lo que necesites, ya sea una consulta especial o asesoría personalizada.\n\n✨Gracias por confiar en nosotros. Tu estilo merece atención directa\nCon cariño,\nTu equipo de moda femenina 💃"
@@ -678,7 +679,7 @@ def whatsapp_webhook(request):
                                             
                                         # Si no hay function call, envía la respuesta de texto normal
                                         if not has_function_call:
-                                            print("📝 RESPUESTA TEXTUAL")
+                                            log.debug("📝 RESPUESTA TEXTUAL")
                                             # Obtén el texto de manera segura
                                             response_text = ""
                                             if response.candidates:
@@ -689,19 +690,19 @@ def whatsapp_webhook(request):
                                             if response_text:
                                                 send_whatsapp_message(sender_id, response_text)
                                                 save_user_data(phone_number=sender_id, context=response_text)
-                                                print(f"Mensaje enviado: {response_text}")
+                                                log.debug(f"Mensaje enviado: {response_text}")
                                             else:
-                                                print("⚠️ No se pudo extraer texto de la respuesta")
+                                                log.error("⚠️ No se pudo extraer texto de la respuesta")
                         else:
-                            print(f"Campo recibido: {change.get('field')}")
+                            log.debug(f"Campo recibido: {change.get('field')}")
             else:
-                print(f" Estructura inesperada: {data}")
+                log.error(f" Estructura inesperada: {data}")
             return JsonResponse({"status": "ok"}, status=200)
         except json.JSONDecodeError:
-            print(f"Error JSON: {e}")
+            log.error(f"Error JSON: {e}")
             return HttpResponse("Invalid JSON", status=400)
         except Exception as e:
-            print(f"Error procesando el POST:{e}")
+            log.error(f"Error procesando el POST:{e}")
             return HttpResponse("Internal Server Error", status=500)
         
     return HttpResponse("Not Found..", status=404)
