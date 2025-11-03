@@ -38,6 +38,26 @@ WHATSAPP_URL = f"https://graph.facebook.com/v20.0/{ID_NUMERO}/messages"
 SYSTEM_PROMPT = config("SYSTEM_PROMPT")
 CATALOG_ID = config("CATALOG_ID")
 
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'DEBUG',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+    },
+}
+
 # Application definition
 
 INSTALLED_APPS = [

@@ -1,10 +1,4 @@
-import logging as log
+import logging as logger
 import sys
 
-log.basicConfig(
-    level=log.DEBUG,
-    format='%(levelname)s -> %(message)s <- %(filename)s | %(lineno)s',
-    handlers=[
-        log.StreamHandler(sys.stdout)
-    ]
-)
+log = logger.getLogger(__name__)
