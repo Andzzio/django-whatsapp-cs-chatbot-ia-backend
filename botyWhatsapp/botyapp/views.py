@@ -88,13 +88,15 @@ def sync_catalog_products(catalog_id):
             print(f"Detalles: {e.response.text}")
         return {}
 
-def save_user_data(phone_number, client_name = None, context = None):
+def save_user_data(phone_number, client_name = None, context = None, image_id = None):
     cache_key = f"Client_{phone_number}"
     client_data = cache.get(cache_key, {})
     if client_name:
         client_data['client_name'] = client_name
     if context:
         client_data['context'] = context
+    if image_id:
+        client_data['image_id'] = image_id
     client_data['phone_number'] = phone_number
     
     cache.set(cache_key, client_data, timeout=60*60*24*30)
@@ -116,6 +118,14 @@ def get_context(phone_number):
         return f"CONTEXTO: {client_data['context']}\n PREGUNTA:"
     else:
         return ""
+
+def get_image_id(phone_number):
+    cache_key = f"Client_{phone_number}"
+    client_data = cache.get(cache_key)
+    if client_data and client_data.get('image_id'):
+        return client_data['image_id']
+    else:
+        return None
 
 def notify_owner(order_data, sender_id, total_price, currency):
     """
@@ -511,6 +521,30 @@ def send_button_catalog_agent(sender_id, message):
         print(f"Ocurrió un error al enviar el mensaje {e}")
         return None
 
+def send_image(sender_id, image_id):
+    headers={
+        "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    data={
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": sender_id,
+        "type": "image",
+        "image": {
+            "id": image_id,
+        }
+    }
+    try:
+        response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
+        response.raise_for_status()
+        print(f"Imagen enviada exitosamente: {response.json()}")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error al enviar imagen de Whatsapp {e}")
+        print(f"❌ Respuesta del servidor: {e.response.text if e.response else 'Sin respuesta'}")
+        return None
+
 def send_whatsapp_message(receptor_wsp_id, text_answer):
     headers={
         "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
@@ -573,6 +607,9 @@ def whatsapp_webhook(request):
                                         process_order(order_data, sender_id)
                                     elif message_type == "image":
                                         print("🌄 IMAGEN DETECTADA")
+                                        image = message_event.get("image")
+                                        image_id = image.get("id")
+                                        save_user_data(phone_number=sender_id, image_id=image_id)
                                         mess = "Hola linda ✨, te gustaría que te pase el catálogo para que hagas la compra desde ahí o quieres que te pase con uno de nuestros agentes especializados? 😌"
                                         save_user_data(phone_number=sender_id, context=mess)
                                         send_button_catalog_agent(sender_id, mess)
@@ -590,6 +627,9 @@ def whatsapp_webhook(request):
                                             notify = f"*NOTIFICACIÓN DE SOLICITUD DE AYUDA POR CLIENTE*\n- NUMERO DEL CLIENTE: {sender_id}\n- NOMBRE DEL CLIENTE: {get_user_name(sender_id)}"
                                             send_whatsapp_message(settings.OWNER_PHONE_NUMBER, notify)
                                             print(f"MENSAJE ENVIADO EXITOSAMENTE: {notify}")
+
+                                            send_image(settings.OWNER_PHONE_NUMBER, get_image_id(sender_id))
+                                            print("IMAGEN ENVIADA EXITOSAMENTE")
                                         if button_id == "button2":
                                             print("✅ ACCEDIENDO AL CATALOGO")
                                             send_catalog_message(
