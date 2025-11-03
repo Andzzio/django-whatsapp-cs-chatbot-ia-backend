@@ -466,6 +466,51 @@ def send_contact_message(sender_id):
         print(f"Error al enviar contacto de Whatsapp {e}")
         return None
 
+def send_button_catalog_agent(sender_id, message):
+    headers={
+        "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    data={
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": sender_id,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": message,
+            },
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "button1",
+                            "title": "Contactar Agente",
+                        }
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": "button2",
+                            "title": "Ver Catalogo",
+                        }                      
+                    }
+                ]
+            }
+        }
+    }
+
+    try:
+        response = requests.post(settings.WHATSAPP_URL, headers=headers, json=data)
+        response.raise_for_status()
+        print(f"MENSAJE DE BOTONES ENVIADO CON ÉXITO")
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Ocurrió un error al enviar el mensaje {e}")
+        return None
+
 def send_whatsapp_message(receptor_wsp_id, text_answer):
     headers={
         "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
@@ -486,6 +531,7 @@ def send_whatsapp_message(receptor_wsp_id, text_answer):
         return response.json()
     except requests.exceptions.RequestException as e:
         print(f"Error al enviar mensaje de Whatsapp {e}")
+        print(f"❌ Respuesta del servidor: {e.response.text if e.response else 'Sin respuesta'}")
         return None
 @csrf_exempt
 def whatsapp_webhook(request):
@@ -529,7 +575,28 @@ def whatsapp_webhook(request):
                                         print("🌄 IMAGEN DETECTADA")
                                         mess = "Hola linda ✨, te gustaría que te pase el catálogo para que hagas la compra desde ahí o quieres que te pase con uno de nuestros agentes especializados? 😌"
                                         save_user_data(phone_number=sender_id, context=mess)
-                                        send_whatsapp_message(sender_id, mess)
+                                        send_button_catalog_agent(sender_id, mess)
+                                    elif message_type == "interactive":
+                                        interactive = message_event.get("interactive")
+                                        button_reply = interactive.get("button_reply")
+                                        button_id = button_reply.get("id")
+                                        if button_id == "button1":
+                                            print("✅ ACCEDIENDO AL CONTACTO")
+                                            send_whatsapp_message(
+                                                sender_id,
+                                                "¡Con gusto linda!❤️\n\nEntiendo que deseas hablar directamente con nuestro encargado.\nÉl estará encantado de ayudarte con lo que necesites, ya sea una consulta especial o asesoría personalizada.\n\n✨Gracias por confiar en nosotros. Tu estilo merece atención directa\nCon cariño,\nTu equipo de moda femenina 💃"
+                                                )
+                                            send_contact_message(sender_id)
+                                            notify = f"*NOTIFICACIÓN DE SOLICITUD DE AYUDA POR CLIENTE*\n- NUMERO DEL CLIENTE: {sender_id}\n- NOMBRE DEL CLIENTE: {get_user_name(sender_id)}"
+                                            send_whatsapp_message(settings.OWNER_PHONE_NUMBER, notify)
+                                            print(f"MENSAJE ENVIADO EXITOSAMENTE: {notify}")
+                                        if button_id == "button2":
+                                            print("✅ ACCEDIENDO AL CATALOGO")
+                                            send_catalog_message(
+                                                sender_id, 
+                                                "¡Aquí está nuestro catálogo completo! 🛍️✨ Explora todos nuestros productos."
+                                            )
+                                            
                                     elif message_type == "text":
                                         text_body = message_event["text"]["body"].lower().strip()
                                         response = client.models.generate_content(
