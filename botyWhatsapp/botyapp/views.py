@@ -9,7 +9,7 @@ from google.genai import types
 from django.core.cache import cache
 from datetime import timedelta
 import pytz
-from botyWhatsapp.logger import log
+from logger import log
 
 IA_KEY = settings.IA_TOKEN
 
