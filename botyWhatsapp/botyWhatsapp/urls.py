@@ -20,5 +20,6 @@ import botyapp.views
 
 urlpatterns = [
     #path('admin/', admin.site.urls),
+    path('', botyapp.views.health_check, name='health_check'),
     path("webhook/", botyapp.views.whatsapp_webhook, name="whatsapp_webhook_meta"),
 ]

@@ -14,6 +14,11 @@ IA_KEY = settings.IA_TOKEN
 
 client = genai.Client(api_key=IA_KEY)
 
+def health_check(request):
+    """Responde a la verificación de estado de Render."""
+    # Código 200 OK
+    return HttpResponse("Bot is running", status=200)
+
 def button_tool():
     """Herramienta para mostrar el catálogo de productos"""
     return types.Tool(
