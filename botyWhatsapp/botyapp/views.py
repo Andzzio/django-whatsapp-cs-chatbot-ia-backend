@@ -10,6 +10,9 @@ from django.core.cache import cache
 from datetime import timedelta
 import pytz
 from logger import log
+import time
+import random
+
 
 IA_KEY = settings.IA_TOKEN
 
@@ -645,14 +648,49 @@ def whatsapp_webhook(request):
                                             
                                     elif message_type == "text":
                                         text_body = message_event["text"]["body"].lower().strip()
-                                        response = client.models.generate_content(
-                                        model="models/gemini-2.0-flash-lite",
-                                        contents=get_context(sender_id) + text_body,
-                                        config={
-                                            "system_instruction": settings.SYSTEM_PROMPT,
-                                            "tools": [button_tool()]
-                                        }
-                                        )
+                                        
+                                        max_reintentos = 4
+                                        
+                                        for intento in range(max_reintentos):
+                                            try:
+                                                response = client.models.generate_content(
+                                                model="models/gemini-2.0-flash-lite",
+                                                contents=get_context(sender_id) + text_body,
+                                                config={
+                                                    "system_instruction": settings.SYSTEM_PROMPT,
+                                                    "tools": [button_tool()]
+                                                    }
+                                                )
+                                                break
+                                            except Exception as e:
+                                                # Convertimos el error a texto para analizarlo
+                                                error_texto = str(e).lower()
+                                                
+                                                # Verificamos si es un error de límite de tasa (429)
+                                                if "429" in error_texto or "resource_exhausted" in error_texto:
+                                                    log.warning(f"⚠️ Error de Límite de Tasa (429) detectado.")
+                                                    
+                                                    # Si es el último intento, nos rendimos
+                                                    if intento + 1 == max_reintentos:
+                                                        log.error("❌ Fallo definitivo después de reintentos. Notificando al cliente.")
+                                                        send_whatsapp_message(sender_id, "😔 Disculpa, estamos recibiendo muchas consultas. Por favor, intenta nuevamente en un momento.")
+                                                        return HttpResponse("Rate Limit Final Failure", status=200)
+                                                    
+                                                    # Calcular espera y reintentar
+                                                    espera = (2 ** intento) + random.uniform(0, 1)
+                                                    log.warning(f"⏳ Esperando {espera:.2f} segundos...")
+                                                    time.sleep(espera)
+                                                
+                                                else:
+                                                    # Si es CUALQUIER OTRO error, lo registramos y salimos
+                                                    log.error(f"❌ Error inesperado en Gemini: {e}")
+                                                    send_whatsapp_message(sender_id, "😔 Hubo un error interno. Por favor, intenta de nuevo.")
+                                                    return JsonResponse({"status": "error_gemini"}, status=200)
+                                        
+                                        if not response:
+                                             log.error("❌ La respuesta de Gemini está vacía después de los reintentos.")
+                                             return HttpResponse("No response from Gemini", status=200)
+                                        
                                         has_function_call = False
                                         if response.candidates:
                                             for part in response.candidates[0].content.parts:
