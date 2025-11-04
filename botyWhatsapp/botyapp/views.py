@@ -38,7 +38,7 @@ def button_tool():
             ),
             types.FunctionDeclaration(
                 name="show_contact",
-                description="Usarás esta función cuando el usuario solicite hablar con el dueño, una persona real, agente, gerente, encargado, agente especializado, Nunca pasarás números inventados ni contactos inventados.",
+                description="Ejecutarás esta función y no devolverás una respuesta textual cuando el usuario solicite hablar con el dueño, una persona real, agente, gerente, encargado, agente especializado, Nunca pasarás números inventados ni contactos inventados.",
                 parameters=types.Schema(
                     type=types.Type.OBJECT,
                     properties={},
