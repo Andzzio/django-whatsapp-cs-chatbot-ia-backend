@@ -654,14 +654,14 @@ async def whatsapp_webhook(request):
                                         
                                         for intento in range(max_reintentos):
                                             try:
-                                                response = await client.models.generate_content(
+                                                response = asyncio.to_thread(client.models.generate_content(
                                                 model="models/gemini-2.0-flash-lite",
                                                 contents=get_context(sender_id) + text_body,
                                                 config={
                                                     "system_instruction": settings.SYSTEM_PROMPT,
                                                     "tools": [button_tool()]
                                                     }
-                                                )
+                                                ))
                                                 break
                                             except Exception as e:
                                                 # Convertimos el error a texto para analizarlo
