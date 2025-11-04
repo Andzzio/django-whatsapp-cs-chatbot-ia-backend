@@ -12,7 +12,6 @@ import pytz
 from logger import log
 import time
 import random
-import asyncio
 
 
 IA_KEY = settings.IA_TOKEN
@@ -578,7 +577,7 @@ def send_whatsapp_message(receptor_wsp_id, text_answer):
         log.error(f"❌ Respuesta del servidor: {e.response.text if e.response else 'Sin respuesta'}")
         return None
 @csrf_exempt
-async def whatsapp_webhook(request):
+def whatsapp_webhook(request):
     if request.method == "GET":
         mode = request.GET.get("hub.mode")
         token = request.GET.get("hub.verify_token")
@@ -654,14 +653,14 @@ async def whatsapp_webhook(request):
                                         
                                         for intento in range(max_reintentos):
                                             try:
-                                                response = asyncio.to_thread(client.models.generate_content(
+                                                response = client.models.generate_content(
                                                 model="models/gemini-2.0-flash-lite",
                                                 contents=get_context(sender_id) + text_body,
                                                 config={
                                                     "system_instruction": settings.SYSTEM_PROMPT,
                                                     "tools": [button_tool()]
                                                     }
-                                                ))
+                                                )
                                                 break
                                             except Exception as e:
                                                 # Convertimos el error a texto para analizarlo
@@ -680,7 +679,7 @@ async def whatsapp_webhook(request):
                                                     # Calcular espera y reintentar
                                                     espera = (2 ** intento) + random.uniform(0, 1)
                                                     log.warning(f"⏳ Esperando {espera:.2f} segundos...")
-                                                    await asyncio.sleep(espera)
+                                                    time.sleep(espera)
                                                 
                                                 else:
                                                     # Si es CUALQUIER OTRO error, lo registramos y salimos
