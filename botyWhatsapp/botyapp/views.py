@@ -12,6 +12,7 @@ import pytz
 from logger import log
 import time
 import random
+import asyncio
 
 
 IA_KEY = settings.IA_TOKEN
@@ -38,7 +39,7 @@ def button_tool():
             ),
             types.FunctionDeclaration(
                 name="show_contact",
-                description="Mostrarás el contacto del dueño, agente, gerente, encargado, etc cuando el usuario solicite hablar con el dueño, una persona real, agente, gerente, encargado, etc.",
+                description="Usarás esta función cuando el usuario solicite hablar con el dueño, una persona real, agente, gerente, encargado, agente especializado, Nunca pasarás números inventados ni contactos inventados.",
                 parameters=types.Schema(
                     type=types.Type.OBJECT,
                     properties={},
@@ -577,7 +578,7 @@ def send_whatsapp_message(receptor_wsp_id, text_answer):
         log.error(f"❌ Respuesta del servidor: {e.response.text if e.response else 'Sin respuesta'}")
         return None
 @csrf_exempt
-def whatsapp_webhook(request):
+async def whatsapp_webhook(request):
     if request.method == "GET":
         mode = request.GET.get("hub.mode")
         token = request.GET.get("hub.verify_token")
@@ -653,7 +654,7 @@ def whatsapp_webhook(request):
                                         
                                         for intento in range(max_reintentos):
                                             try:
-                                                response = client.models.generate_content(
+                                                response = await client.models.generate_content(
                                                 model="models/gemini-2.0-flash-lite",
                                                 contents=get_context(sender_id) + text_body,
                                                 config={
@@ -679,7 +680,7 @@ def whatsapp_webhook(request):
                                                     # Calcular espera y reintentar
                                                     espera = (2 ** intento) + random.uniform(0, 1)
                                                     log.warning(f"⏳ Esperando {espera:.2f} segundos...")
-                                                    time.sleep(espera)
+                                                    await asyncio.sleep(espera)
                                                 
                                                 else:
                                                     # Si es CUALQUIER OTRO error, lo registramos y salimos
