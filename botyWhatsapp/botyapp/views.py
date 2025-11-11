@@ -253,7 +253,7 @@ def send_catalog_message(receptor_wsp_id, body_text="¡Mira nuestro catálogo! �
         return response.json()
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar catálogo: {e}")
-        if hasattr(e.response, 'text'):
+        if hasattr(e.response, 'text') and e.response:
             log.error(f"Detalles del error: {e.response.text}")
         return None
 
@@ -339,7 +339,7 @@ def process_order(order_data, sender_id):
     except Exception as e:
         log.error(f"❌ Error procesando orden: {e}")
         import traceback
-        traceback.log.debug_exc()
+        traceback.print_exc()
         
         # Enviar mensaje de error al cliente
         send_whatsapp_message(
@@ -389,7 +389,7 @@ def send_product_message(receptor_wsp_id, catalog_id, product_retailer_id, body_
         return response.json()
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar producto: {e}")
-        if hasattr(e.response, 'text'):
+        if hasattr(e.response, 'text') and e.response:
             log.error(f"Detalles del error: {e.response.text}")
         return None
 
@@ -446,7 +446,7 @@ def send_product_list_message(receptor_wsp_id, catalog_id, sections, header_text
         return response.json()
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar lista de productos: {e}")
-        if hasattr(e.response, 'text'):
+        if hasattr(e.response, 'text') and e.response:
             log.error(f"Detalles del error: {e.response.text}")
         return None
 
@@ -692,7 +692,7 @@ def whatsapp_webhook(request):
                                              return HttpResponse("No response from Gemini", status=200)
                                         
                                         has_function_call = False
-                                        if response.candidates:
+                                        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
                                             for part in response.candidates[0].content.parts:
                                                 if hasattr(part, 'function_call') and part.function_call:
                                                     has_function_call = True
@@ -720,9 +720,9 @@ def whatsapp_webhook(request):
                                             log.debug("📝 RESPUESTA TEXTUAL")
                                             # Obtén el texto de manera segura
                                             response_text = ""
-                                            if response.candidates:
+                                            if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
                                                 for part in response.candidates[0].content.parts:
-                                                    if hasattr(part, 'text'):
+                                                    if hasattr(part, 'text') and part.text:
                                                         response_text += part.text
                                                 
                                             if response_text:
