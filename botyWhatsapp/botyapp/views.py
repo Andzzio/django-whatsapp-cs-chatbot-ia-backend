@@ -13,6 +13,7 @@ from logger import log
 import time
 import random
 
+#COMENTARIO PARA HACER UN TEST COMMIT
 
 IA_KEY = settings.IA_TOKEN
 
