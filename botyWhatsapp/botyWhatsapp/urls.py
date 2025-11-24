@@ -17,9 +17,11 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 import botyapp.views
+from botyapp.api import sync_data
 
 urlpatterns = [
     #path('admin/', admin.site.urls),
     path('', botyapp.views.health_check, name='health_check'),
     path("webhook/", botyapp.views.whatsapp_webhook, name="whatsapp_webhook_meta"),
+    path("api/sync/", sync_data, name="api_sync")
 ]
