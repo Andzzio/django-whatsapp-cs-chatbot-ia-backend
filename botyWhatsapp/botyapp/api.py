@@ -1,6 +1,7 @@
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from models import Contact, Message
+from .models import Contact, Message
+
 
 @csrf_exempt
 def sync_data():
