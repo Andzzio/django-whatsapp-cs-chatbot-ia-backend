@@ -4,7 +4,7 @@ from .models import Contact, Message
 
 
 @csrf_exempt
-def sync_data():
+def sync_data(request):
     token = request.headers.get("Authorization")
     if token != "sanchez955144602":
         return JsonResponse({"error": "Unauthorized"}, status=403)
