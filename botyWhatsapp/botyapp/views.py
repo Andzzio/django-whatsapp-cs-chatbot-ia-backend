@@ -12,6 +12,9 @@ import pytz
 from logger import log
 import time
 import random
+from .models import Contact, Message
+
+
 
 #COMENTARIO PARA HACER UN TEST COMMIT
 
@@ -572,6 +575,11 @@ def send_whatsapp_message(receptor_wsp_id, text_answer):
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
         log.debug(f"Mensaje enviado exitosamente: {response.json()}")
+        try:
+            contact_obj = Contact.objects.get(phone=receptor_wsp_id)
+            Message.objects.create(contact=contact_obj, text = text_answer, is_bot = True)
+        except Contact.DoesNotExist:
+            pass
         return response.json()
     except requests.exceptions.RequestException as e:
         log.error(f"Error al enviar mensaje de Whatsapp {e}")
@@ -602,6 +610,13 @@ def whatsapp_webhook(request):
                                 client_number = contact.get("wa_id")
                                 profile = contact.get("profile", {})
                                 client_name = profile.get("name")
+                                contact_obj, created = Contact.objects.get_or_create(
+                                    phone=client_number,
+                                    defaults={"name": client_name}
+                                )
+                                if not created and contact_obj.name != client_name:
+                                    contact_obj.name = client_name
+                                    contact_obj.save()
                                 #log.debug(f"🗣️🗣️NOMBRE DEL CLIENTE: {client_name}")
                                 #log.debug(f"🗣️🗣️NUMERO DEL CLIENTE: {client_number}")
                                 save_user_data(phone_number=client_number, client_name=client_name)
@@ -649,7 +664,8 @@ def whatsapp_webhook(request):
                                             
                                     elif message_type == "text":
                                         text_body = message_event["text"]["body"].lower().strip()
-                                        
+                                        contact_obj = Contact.objects.get(phone=sender_id)
+                                        Message.objects.create(contact=contact_obj, text=message_event["text"]["body"].strip(), is_bot=False)
                                         max_reintentos = 4
                                         
                                         for intento in range(max_reintentos):
