@@ -255,7 +255,7 @@ def send_catalog_message(receptor_wsp_id, body_text="¡Mira nuestro catálogo! �
         response.raise_for_status()
         log.debug(f"✅ Catálogo enviado exitosamente: {response.json()}")
         try:
-            contact_obj = Contact.objects.get(phone=sender_id)
+            contact_obj = Contact.objects.get(phone=receptor_wsp_id)
             Message.objects.create(contact=contact_obj, text="*Bot envió el catálogo*", is_bot=True)
         except Contact.DoesNotExist:
             pass
@@ -692,13 +692,14 @@ def whatsapp_webhook(request):
                                             send_image(settings.OWNER_PHONE_NUMBER, get_image_id(sender_id))
                                             log.debug("IMAGEN ENVIADA EXITOSAMENTE")
                                         if button_id == "button2":
-                                            ontact_obj = Contact.objects.get(phone=sender_id)
+                                            contact_obj = Contact.objects.get(phone=sender_id)
                                             Message.objects.create(contact=contact_obj, text="*Cliente eligió acceder al catálogo*", is_bot=False)
                                             log.debug("✅ ACCEDIENDO AL CATALOGO")
                                             send_catalog_message(
                                                 sender_id, 
                                                 "¡Aquí está nuestro catálogo completo! 🛍️✨ Explora todos nuestros productos."
                                             )
+                                            break
                                             
                                     elif message_type == "text":
                                         text_body = message_event["text"]["body"].lower().strip()
