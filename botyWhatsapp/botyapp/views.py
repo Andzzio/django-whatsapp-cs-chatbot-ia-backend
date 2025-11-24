@@ -254,6 +254,11 @@ def send_catalog_message(receptor_wsp_id, body_text="¡Mira nuestro catálogo! �
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
         log.debug(f"✅ Catálogo enviado exitosamente: {response.json()}")
+        try:
+            contact_obj = Contact.objects.get(phone=sender_id)
+            Message.objects.create(contact=contact_obj, text="*Bot envió el catálogo*", is_bot=True)
+        except Contact.DoesNotExist:
+            pass
         return response.json()
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar catálogo: {e}")
@@ -390,6 +395,11 @@ def send_product_message(receptor_wsp_id, catalog_id, product_retailer_id, body_
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
         log.debug(f"✅ Producto enviado exitosamente: {response.json()}")
+        try:
+            contact_obj = Contact.objects.get(phone=sender_id)
+            Message.objects.create(contact=contact_obj, text="*Bot envió productos*", is_bot=True)
+        except Contact.DoesNotExist:
+            pass
         return response.json()
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar producto: {e}")
@@ -447,6 +457,11 @@ def send_product_list_message(receptor_wsp_id, catalog_id, sections, header_text
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
         log.debug(f"✅ Lista de productos enviada exitosamente: {response.json()}")
+        try:
+            contact_obj = Contact.objects.get(phone=sender_id)
+            Message.objects.create(contact=contact_obj, text="*Bot envió una lista de productos*", is_bot=True)
+        except Contact.DoesNotExist:
+            pass
         return response.json()
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar lista de productos: {e}")
@@ -484,6 +499,11 @@ def send_contact_message(sender_id):
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
         log.debug(f"Contacto enviado exitosamente: {response.json()}")
+        try:
+            contact_obj = Contact.objects.get(phone=sender_id)
+            Message.objects.create(contact=contact_obj, text="*Bot envió el contacto registrado*", is_bot=True)
+        except Contact.DoesNotExist:
+            pass
         return response.json()
     except requests.exceptions.RequestException as e:
         log.error(f"Error al enviar contacto de Whatsapp {e}")
@@ -529,6 +549,11 @@ def send_button_catalog_agent(sender_id, message):
         response = requests.post(settings.WHATSAPP_URL, headers=headers, json=data)
         response.raise_for_status()
         log.debug(f"MENSAJE DE BOTONES ENVIADO CON ÉXITO")
+        try:
+            contact_obj = Contact.objects.get(phone=sender_id)
+            Message.objects.create(contact=contact_obj, text="*Bot envió los botones para elegir entre contactar agente y ver catálogo*", is_bot=True)
+        except Contact.DoesNotExist:
+            pass
         return response.json()
     except requests.exceptions.RequestException as e:
         log.error(f"Ocurrió un error al enviar el mensaje {e}")
@@ -552,6 +577,11 @@ def send_image(sender_id, image_id):
         response = requests.post(settings.WHATSAPP_URL, headers=headers, data=json.dumps(data))
         response.raise_for_status()
         log.debug(f"Imagen enviada exitosamente: {response.json()}")
+        try:
+            contact_obj = Contact.objects.get(phone=sender_id)
+            Message.objects.create(contact=contact_obj, text="*Bot envió una imagen*", is_bot=True)
+        except Contact.DoesNotExist:
+            pass
         return response.json()
     except requests.exceptions.RequestException as e:
         log.error(f"Error al enviar imagen de Whatsapp {e}")
@@ -627,10 +657,14 @@ def whatsapp_webhook(request):
                                     sender_id = message_event["from"]
                                     log.debug(f"RECUPERANDO EL NOMBRE DEL CLIENTE {get_user_name(sender_id)}")
                                     if message_type == "order":
+                                        contact_obj = Contact.objects.get(phone=sender_id)
+                                        Message.objects.create(contact=contact_obj, text="*Cliente envió una orden de pedido*", is_bot=False)
                                         log.debug("🛒 ORDEN DETECTADA")
                                         order_data = message_event.get("order", {})
                                         process_order(order_data, sender_id)
                                     elif message_type == "image":
+                                        contact_obj = Contact.objects.get(phone=sender_id)
+                                        Message.objects.create(contact=contact_obj, text="*Cliente envió una imagen*", is_bot=False)
                                         log.debug("🌄 IMAGEN DETECTADA")
                                         image = message_event.get("image")
                                         image_id = image.get("id")
@@ -643,6 +677,8 @@ def whatsapp_webhook(request):
                                         button_reply = interactive.get("button_reply")
                                         button_id = button_reply.get("id")
                                         if button_id == "button1":
+                                            contact_obj = Contact.objects.get(phone=sender_id)
+                                            Message.objects.create(contact=contact_obj, text="*Cliente eligió contactar a un agente*", is_bot=False)
                                             log.debug("✅ ACCEDIENDO AL CONTACTO")
                                             send_whatsapp_message(
                                                 sender_id,
@@ -656,6 +692,8 @@ def whatsapp_webhook(request):
                                             send_image(settings.OWNER_PHONE_NUMBER, get_image_id(sender_id))
                                             log.debug("IMAGEN ENVIADA EXITOSAMENTE")
                                         if button_id == "button2":
+                                            ontact_obj = Contact.objects.get(phone=sender_id)
+                                            Message.objects.create(contact=contact_obj, text="*Cliente eligió acceder al catálogo*", is_bot=False)
                                             log.debug("✅ ACCEDIENDO AL CATALOGO")
                                             send_catalog_message(
                                                 sender_id, 

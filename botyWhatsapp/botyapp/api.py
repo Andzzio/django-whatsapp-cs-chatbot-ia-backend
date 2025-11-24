@@ -2,6 +2,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .models import Contact, Message
 from django.conf import settings
+import pytz
 
 
 @csrf_exempt
@@ -20,7 +21,7 @@ def sync_data(request):
                 msgs.append({
                     "user": "BOTY" if m.is_bot else contact.name,
                     "text": m.text,
-                    "time": m.timestamp.strftime("%H:%M"),
+                    "time": m.timestamp.astimezone(pytz.timezone('America/Lima')).strftime("%H:%M"),
                     "is_bot": m.is_bot
                 })
             response_data.append({
