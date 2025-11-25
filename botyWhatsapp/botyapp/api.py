@@ -28,6 +28,8 @@ def sync_data(request):
                 })
             response_data.append({
                 "name": contact.name,
+                "phone": contact.phone,
+                "is_bot_active": contact.is_bot_active,
                 "history": msgs
             })
         return JsonResponse({"contacts": response_data}, safe=False)
