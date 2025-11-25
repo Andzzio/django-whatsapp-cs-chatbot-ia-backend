@@ -664,13 +664,16 @@ def whatsapp_webhook(request):
                                         process_order(order_data, sender_id)
                                     elif message_type == "image":
                                         contact_obj = Contact.objects.get(phone=sender_id)
+                                        
+                                        # Guardar mensaje del usuario SIEMPRE
+                                        Message.objects.create(contact=contact_obj, text="*Cliente envió una imagen*", is_bot=False)
+                                        
                                         if not contact_obj.is_bot_active:
                                             return JsonResponse({"status": "bot_disabled"}, status=200)
                                         if contact_obj.bot_disabled_at:
                                             message_timestamp = datetime.fromtimestamp(message_event.get("timestamp"))
                                             if message_timestamp < contact_obj.bot_disabled_at:
                                                 return JsonResponse({"status": "old_message_ignored"}, status=200)
-                                        Message.objects.create(contact=contact_obj, text="*Cliente envió una imagen*", is_bot=False)
                                         log.debug("🌄 IMAGEN DETECTADA")
                                         image = message_event.get("image")
                                         image_id = image.get("id")
@@ -680,18 +683,24 @@ def whatsapp_webhook(request):
                                         send_button_catalog_agent(sender_id, mess)
                                     elif message_type == "interactive":
                                         contact_obj = Contact.objects.get(phone=sender_id)
+                                        interactive = message_event.get("interactive")
+                                        button_reply = interactive.get("button_reply")
+                                        button_id = button_reply.get("id")
+                                        
+                                        # Guardar acción del usuario SIEMPRE
+                                        if button_id == "button1":
+                                            Message.objects.create(contact=contact_obj, text="*Cliente eligió contactar a un agente*", is_bot=False)
+                                        elif button_id == "button2":
+                                            Message.objects.create(contact=contact_obj, text="*Cliente eligió acceder al catálogo*", is_bot=False)
+                                        
                                         if not contact_obj.is_bot_active:
                                             return JsonResponse({"status": "bot_disabled"}, status=200)
                                         if contact_obj.bot_disabled_at:
                                             message_timestamp = datetime.fromtimestamp(message_event.get("timestamp"))
                                             if message_timestamp < contact_obj.bot_disabled_at:
                                                 return JsonResponse({"status": "old_message_ignored"}, status=200)
-                                        interactive = message_event.get("interactive")
-                                        button_reply = interactive.get("button_reply")
-                                        button_id = button_reply.get("id")
+                                        
                                         if button_id == "button1":
-                                            
-                                            Message.objects.create(contact=contact_obj, text="*Cliente eligió contactar a un agente*", is_bot=False)
                                             log.debug("✅ ACCEDIENDO AL CONTACTO")
                                             send_whatsapp_message(
                                                 sender_id,
@@ -705,8 +714,6 @@ def whatsapp_webhook(request):
                                             send_image(settings.OWNER_PHONE_NUMBER, get_image_id(sender_id))
                                             log.debug("IMAGEN ENVIADA EXITOSAMENTE")
                                         if button_id == "button2":
-                                            
-                                            Message.objects.create(contact=contact_obj, text="*Cliente eligió acceder al catálogo*", is_bot=False)
                                             log.debug("✅ ACCEDIENDO AL CATALOGO")
                                             send_catalog_message(
                                                 sender_id, 
@@ -718,13 +725,15 @@ def whatsapp_webhook(request):
                                         text_body = message_event["text"]["body"].lower().strip()
                                         contact_obj = Contact.objects.get(phone=sender_id)
                                         
+                                        # Guardar mensaje del usuario SIEMPRE (antes de verificar si el bot debe responder)
+                                        Message.objects.create(contact=contact_obj, text=message_event["text"]["body"].strip(), is_bot=False)
+                                        
                                         if not contact_obj.is_bot_active:
                                             return JsonResponse({"status": "bot_disabled"}, status=200)
                                         if contact_obj.bot_disabled_at:
                                             message_timestamp = datetime.fromtimestamp(message_event.get("timestamp"))
                                             if message_timestamp < contact_obj.bot_disabled_at:
                                                 return JsonResponse({"status": "old_message_ignored"}, status=200)
-                                        Message.objects.create(contact=contact_obj, text=message_event["text"]["body"].strip(), is_bot=False)
                                         max_reintentos = 4
                                         
                                         for intento in range(max_reintentos):
