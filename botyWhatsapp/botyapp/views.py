@@ -719,6 +719,25 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id):
                 log.debug("✅ TEXTO GENERADO")
                 if response.text:
                     send_whatsapp_message(sender_id, response.text)
+                    
+                    # Actualizar memoria (Contexto)
+                    try:
+                        cache_key = f"Client_{sender_id}"
+                        client_data = cache.get(cache_key, {})
+                        current_context = client_data.get('context', "")
+                        
+                        # Limitar historial para no exceder tokens (aprox últimos 10 mensajes)
+                        # Si es muy largo, cortamos el inicio
+                        if len(current_context) > 2000:
+                            current_context = current_context[-2000:]
+                            
+                        new_interaction = f"\nUsuario: {raw_text}\nBot: {response.text}"
+                        updated_context = current_context + new_interaction
+                        
+                        save_user_data(phone_number=sender_id, context=updated_context)
+                        log.debug(f"🧠 Memoria actualizada para {sender_id}")
+                    except Exception as e:
+                        log.error(f"⚠️ Error actualizando memoria: {e}")
     except Exception as e:
         log.error(f"❌ Error fatal en hilo de procesamiento: {e}")
 
