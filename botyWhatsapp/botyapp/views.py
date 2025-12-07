@@ -657,7 +657,7 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id):
         for intento in range(max_reintentos):
             try:
                 response = client.models.generate_content(
-                model="models/gemini-flash-lite-latest",
+                model="models/gemini-2.0-flash-lite-001",
                 contents=get_context(sender_id) + text_body,
                 config={
                     "system_instruction": settings.SYSTEM_PROMPT,
