@@ -12,6 +12,7 @@ import pytz
 from logger import log
 import time
 import random
+import threading
 from .models import Contact, Message
 
 
@@ -615,6 +616,99 @@ def send_whatsapp_message(receptor_wsp_id, text_answer):
         log.error(f"Error al enviar mensaje de Whatsapp {e}")
         log.error(f"❌ Respuesta del servidor: {e.response.text if e.response else 'Sin respuesta'}")
         return None
+def process_gemini_message(sender_id, raw_text, timestamp):
+    try:
+        log.debug(f"🧵 Procesando mensaje en background para: {sender_id}")
+        try:
+            contact_obj = Contact.objects.get(phone=sender_id)
+        except Contact.DoesNotExist:
+            log.error(f"❌ Contacto no encontrado en hilo: {sender_id}")
+            return
+
+        # Guardar mensaje del usuario
+        Message.objects.create(contact=contact_obj, text=raw_text.strip(), is_bot=False)
+        
+        if not contact_obj.is_bot_active:
+            log.debug("🤖 Bot desactivado para este usuario.")
+            return
+
+        if contact_obj.bot_disabled_at:
+            message_timestamp = datetime.fromtimestamp(timestamp)
+            if message_timestamp < contact_obj.bot_disabled_at:
+                log.debug("⏳ Mensaje antiguo ignorado.")
+                return
+
+        text_body = raw_text.lower().strip()
+        max_reintentos = 4
+        
+        for intento in range(max_reintentos):
+            try:
+                response = client.models.generate_content(
+                model="models/gemini-2.0-flash-lite",
+                contents=get_context(sender_id) + text_body,
+                config={
+                    "system_instruction": settings.SYSTEM_PROMPT,
+                    "tools": [button_tool()]
+                    }
+                )
+                break
+            except Exception as e:
+                error_texto = str(e).lower()
+                if "429" in error_texto or "resource_exhausted" in error_texto:
+                    log.warning(f"⚠️ Error de Límite de Tasa (429) detectado en hilo.")
+                    if intento + 1 == max_reintentos:
+                        log.error("❌ Fallo definitivo después de reintentos. Notificando al cliente.")
+                        send_whatsapp_message(sender_id, "😔 Disculpa, estamos recibiendo muchas consultas. Por favor, intenta nuevamente en un momento.")
+                        return
+                    
+                    espera = (2 ** intento) + random.uniform(0, 1)
+                    log.warning(f"⏳ Esperando {espera:.2f} segundos...")
+                    time.sleep(espera)
+                else:
+                    log.error(f"❌ Error inesperado en Gemini: {e}")
+                    send_whatsapp_message(sender_id, "😔 Hubo un error interno. Por favor, intenta de nuevo.")
+                    return
+        
+        if not response:
+             log.error("❌ La respuesta de Gemini está vacía después de los reintentos.")
+             return
+        
+        has_function_call = False
+        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'function_call') and part.function_call:
+                    has_function_call = True
+                    function_name = part.function_call.name
+                    log.debug(f"🔧 Function call detectado: {function_name}")
+                        
+                    if function_name == "show_catalog":
+                        log.debug("✅ ACCEDIENDO AL CATALOGO")
+                        send_catalog_message(
+                            sender_id, 
+                            "¡Aquí está nuestro catálogo completo! 🛍️✨ Explora todos nuestros productos."
+                        )
+                        break
+                    elif function_name == "show_contact":
+                        log.debug("✅ ACCEDIENDO AL CONTACTO")
+                        send_whatsapp_message(
+                            sender_id,
+                            "¡Con gusto linda!❤️\n\nEntiendo que deseas hablar directamente con nuestro encargado.\nÉl estará encantado de ayudarte con lo que necesites, ya sea una consulta especial o asesoría personalizada.\n\n✨Gracias por confiar en nosotros. Tu estilo merece atención directa\nCon cariño,\nTu equipo de moda femenina 💃"
+                        )
+                        send_contact_message(sender_id)
+                        notify = f"*NOTIFICACIÓN DE SOLICITUD DE AYUDA POR CLIENTE*\n- NUMERO DEL CLIENTE: {sender_id}\n- NOMBRE DEL CLIENTE: {get_user_name(sender_id)}"
+                        send_whatsapp_message(settings.OWNER_PHONE_NUMBER, notify)
+                        log.debug(f"MENSAJE ENVIADO EXITOSAMENTE: {notify}")
+
+                        send_image(settings.OWNER_PHONE_NUMBER, get_image_id(sender_id))
+                        log.debug("IMAGEN ENVIADA EXITOSAMENTE")
+
+            if not has_function_call:
+                log.debug("✅ TEXTO GENERADO")
+                if response.text:
+                    send_whatsapp_message(sender_id, response.text)
+    except Exception as e:
+        log.error(f"❌ Error fatal en hilo de procesamiento: {e}")
+
 @csrf_exempt
 def whatsapp_webhook(request):
     if request.method == "GET":
@@ -647,8 +741,6 @@ def whatsapp_webhook(request):
                                 if not created and contact_obj.name != client_name:
                                     contact_obj.name = client_name
                                     contact_obj.save()
-                                #log.debug(f"🗣️🗣️NOMBRE DEL CLIENTE: {client_name}")
-                                #log.debug(f"🗣️🗣️NUMERO DEL CLIENTE: {client_number}")
                                 save_user_data(phone_number=client_number, client_name=client_name)
                             if "messages" in value:
                                 log.debug(f"📨 Datos del mensaje: {json.dumps(value, indent=2)}")
@@ -722,100 +814,25 @@ def whatsapp_webhook(request):
                                             break
                                             
                                     elif message_type == "text":
-                                        text_body = message_event["text"]["body"].lower().strip()
-                                        contact_obj = Contact.objects.get(phone=sender_id)
+                                        message_id = message_event.get("id")
+                                        # Deduplicación: Si ya procesamos este ID, lo ignoramos
+                                        if cache.get(f"wamid_{message_id}"):
+                                            log.debug(f"🔁 Mensaje duplicado ignorado: {message_id}")
+                                            continue
+                                        # Marcamos como procesado por 1 hora
+                                        cache.set(f"wamid_{message_id}", "processed", timeout=3600)
+
+                                        raw_text = message_event["text"]["body"]
+                                        timestamp = message_event.get("timestamp")
                                         
-                                        # Guardar mensaje del usuario SIEMPRE (antes de verificar si el bot debe responder)
-                                        Message.objects.create(contact=contact_obj, text=message_event["text"]["body"].strip(), is_bot=False)
+                                        # Lanzamos el hilo y respondemos 200 OK inmediatamente al webhook
+                                        threading.Thread(
+                                            target=process_gemini_message, 
+                                            args=(sender_id, raw_text, timestamp)
+                                        ).start()
                                         
-                                        if not contact_obj.is_bot_active:
-                                            return JsonResponse({"status": "bot_disabled"}, status=200)
-                                        if contact_obj.bot_disabled_at:
-                                            message_timestamp = datetime.fromtimestamp(message_event.get("timestamp"))
-                                            if message_timestamp < contact_obj.bot_disabled_at:
-                                                return JsonResponse({"status": "old_message_ignored"}, status=200)
-                                        max_reintentos = 4
-                                        
-                                        for intento in range(max_reintentos):
-                                            try:
-                                                response = client.models.generate_content(
-                                                model="models/gemini-2.0-flash-lite",
-                                                contents=get_context(sender_id) + text_body,
-                                                config={
-                                                    "system_instruction": settings.SYSTEM_PROMPT,
-                                                    "tools": [button_tool()]
-                                                    }
-                                                )
-                                                break
-                                            except Exception as e:
-                                                # Convertimos el error a texto para analizarlo
-                                                error_texto = str(e).lower()
-                                                
-                                                # Verificamos si es un error de límite de tasa (429)
-                                                if "429" in error_texto or "resource_exhausted" in error_texto:
-                                                    log.warning(f"⚠️ Error de Límite de Tasa (429) detectado.")
-                                                    
-                                                    # Si es el último intento, nos rendimos
-                                                    if intento + 1 == max_reintentos:
-                                                        log.error("❌ Fallo definitivo después de reintentos. Notificando al cliente.")
-                                                        send_whatsapp_message(sender_id, "😔 Disculpa, estamos recibiendo muchas consultas. Por favor, intenta nuevamente en un momento.")
-                                                        return HttpResponse("Rate Limit Final Failure", status=200)
-                                                    
-                                                    # Calcular espera y reintentar
-                                                    espera = (2 ** intento) + random.uniform(0, 1)
-                                                    log.warning(f"⏳ Esperando {espera:.2f} segundos...")
-                                                    time.sleep(espera)
-                                                
-                                                else:
-                                                    # Si es CUALQUIER OTRO error, lo registramos y salimos
-                                                    log.error(f"❌ Error inesperado en Gemini: {e}")
-                                                    send_whatsapp_message(sender_id, "😔 Hubo un error interno. Por favor, intenta de nuevo.")
-                                                    return JsonResponse({"status": "error_gemini"}, status=200)
-                                        
-                                        if not response:
-                                             log.error("❌ La respuesta de Gemini está vacía después de los reintentos.")
-                                             return HttpResponse("No response from Gemini", status=200)
-                                        
-                                        has_function_call = False
-                                        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
-                                            for part in response.candidates[0].content.parts:
-                                                if hasattr(part, 'function_call') and part.function_call:
-                                                    has_function_call = True
-                                                    function_name = part.function_call.name
-                                                    log.debug(f"🔧 Function call detectado: {function_name}")
-                                                        
-                                                    if function_name == "show_catalog":
-                                                        log.debug("✅ ACCEDIENDO AL CATALOGO")
-                                                        send_catalog_message(
-                                                            sender_id, 
-                                                            "¡Aquí está nuestro catálogo completo! 🛍️✨ Explora todos nuestros productos."
-                                                        )
-                                                        break
-                                                    elif function_name == "show_contact":
-                                                        log.debug("✅ ACCEDIENDO AL CONTACTO")
-                                                        send_whatsapp_message(
-                                                            sender_id,
-                                                            "¡Con gusto linda!❤️\n\nEntiendo que deseas hablar directamente con nuestro encargado.\nÉl estará encantado de ayudarte con lo que necesites, ya sea una consulta especial o asesoría personalizada.\n\n✨Gracias por confiar en nosotros. Tu estilo merece atención directa\nCon cariño,\nTu equipo de moda femenina 💃"
-                                                            )
-                                                        send_contact_message(sender_id)
-                                                        break
-                                            
-                                        # Si no hay function call, envía la respuesta de texto normal
-                                        if not has_function_call:
-                                            log.debug("📝 RESPUESTA TEXTUAL")
-                                            # Obtén el texto de manera segura
-                                            response_text = ""
-                                            if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
-                                                for part in response.candidates[0].content.parts:
-                                                    if hasattr(part, 'text') and part.text:
-                                                        response_text += part.text
-                                                
-                                            if response_text:
-                                                send_whatsapp_message(sender_id, response_text)
-                                                save_user_data(phone_number=sender_id, context=response_text)
-                                                log.debug(f"Mensaje enviado: {response_text}")
-                                            else:
-                                                log.error("⚠️ No se pudo extraer texto de la respuesta")
+                                        # No hacemos nada más aquí, el hilo se encarga
+                                        continue
                         else:
                             log.debug(f"Campo recibido: {change.get('field')}")
             else:
