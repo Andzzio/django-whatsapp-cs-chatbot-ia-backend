@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 import botyapp.views
-from botyapp.api import sync_data, toggle_bot_status, send_message_to_contact
+from botyapp.api import sync_data, toggle_bot_status, send_message_to_contact, get_media, send_media_message
 
 urlpatterns = [
     #path('admin/', admin.site.urls),
@@ -25,5 +25,7 @@ urlpatterns = [
     path("webhook/", botyapp.views.whatsapp_webhook, name="whatsapp_webhook_meta"),
     path("api/sync/", sync_data, name="api_sync"),
     path("api/contacts/<str:phone>/toggle-bot/", toggle_bot_status, name="toggle_bot"),
-    path("api/contacts/<str:phone>/send-message/", send_message_to_contact, name="send_message")
+    path("api/contacts/<str:phone>/send-message/", send_message_to_contact, name="send_message"),
+    path("api/media/<str:media_id>/", get_media, name="get_media"),
+    path("api/contacts/<str:phone>/send-media/", send_media_message, name="send_media"),
 ]

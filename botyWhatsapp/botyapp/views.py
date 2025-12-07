@@ -788,10 +788,25 @@ def whatsapp_webhook(request):
                                         process_order(order_data, sender_id)
                                     elif message_type == "image":
                                         contact_obj = Contact.objects.get(phone=sender_id)
+                                        image = message_event.get("image")
+                                        image_id = image.get("id")
+                                        caption = image.get("caption", "")
+                                        wamid = message_event.get("id")
                                         
                                         # Guardar mensaje del usuario SIEMPRE
-                                        Message.objects.create(contact=contact_obj, text="*Cliente envió una imagen*", is_bot=False)
-                                        
+                                        try:
+                                            Message.objects.create(
+                                                contact=contact_obj, 
+                                                text="*Imagen*", 
+                                                is_bot=False,
+                                                message_type="image",
+                                                media_id=image_id,
+                                                caption=caption,
+                                                message_id=wamid
+                                            )
+                                        except Exception as e:
+                                            log.warning(f"Mensaje duplicado o error al guardar imagen: {e}")
+
                                         if not contact_obj.is_bot_active:
                                             return JsonResponse({"status": "bot_disabled"}, status=200)
                                         if contact_obj.bot_disabled_at:
@@ -799,8 +814,6 @@ def whatsapp_webhook(request):
                                             if message_timestamp < contact_obj.bot_disabled_at:
                                                 return JsonResponse({"status": "old_message_ignored"}, status=200)
                                         log.debug("🌄 IMAGEN DETECTADA")
-                                        image = message_event.get("image")
-                                        image_id = image.get("id")
                                         save_user_data(phone_number=sender_id, image_id=image_id)
                                         mess = "Hola linda ✨, te gustaría que te pase el catálogo para que hagas la compra desde ahí o quieres que te pase con uno de nuestros agentes especializados? 😌"
                                         save_user_data(phone_number=sender_id, context=mess)
@@ -844,6 +857,46 @@ def whatsapp_webhook(request):
                                                 "¡Aquí está nuestro catálogo completo! 🛍️✨ Explora todos nuestros productos."
                                             )
                                             break
+                                    
+                                    elif message_type == "audio":
+                                        contact_obj = Contact.objects.get(phone=sender_id)
+                                        audio = message_event.get("audio")
+                                        audio_id = audio.get("id")
+                                        wamid = message_event.get("id")
+                                        
+                                        try:
+                                            Message.objects.create(
+                                                contact=contact_obj,
+                                                text="*Audio*",
+                                                is_bot=False,
+                                                message_type="audio",
+                                                media_id=audio_id,
+                                                message_id=wamid
+                                            )
+                                            log.debug("🎤 AUDIO DETECTADO")
+                                        except Exception as e:
+                                            log.warning(f"Error guardando audio: {e}")
+
+                                    elif message_type == "video":
+                                        contact_obj = Contact.objects.get(phone=sender_id)
+                                        video = message_event.get("video")
+                                        video_id = video.get("id")
+                                        caption = video.get("caption", "")
+                                        wamid = message_event.get("id")
+                                        
+                                        try:
+                                            Message.objects.create(
+                                                contact=contact_obj,
+                                                text="*Video*",
+                                                is_bot=False,
+                                                message_type="video",
+                                                media_id=video_id,
+                                                caption=caption,
+                                                message_id=wamid
+                                            )
+                                            log.debug("🎥 VIDEO DETECTADO")
+                                        except Exception as e:
+                                            log.warning(f"Error guardando video: {e}")
                                             
                                     elif message_type == "text":
                                         message_id = message_event.get("id")

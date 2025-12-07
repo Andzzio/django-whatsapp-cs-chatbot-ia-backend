@@ -14,3 +14,13 @@ class Message(models.Model):
     is_bot = models.BooleanField(default=False)
     timestamp = models.DateTimeField(auto_now_add=True)
     message_id = models.CharField(max_length=255, unique=True, null=True, blank=True)
+    
+    MESSAGE_TYPES = [
+        ('text', 'Text'),
+        ('image', 'Image'),
+        ('audio', 'Audio'),
+        ('video', 'Video'),
+    ]
+    message_type = models.CharField(max_length=10, choices=MESSAGE_TYPES, default='text')
+    media_id = models.CharField(max_length=255, null=True, blank=True)
+    caption = models.TextField(null=True, blank=True)
