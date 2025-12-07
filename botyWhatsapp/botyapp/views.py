@@ -14,6 +14,7 @@ import time
 import random
 import threading
 from .models import Contact, Message
+from django.db import IntegrityError
 
 
 
@@ -633,6 +634,9 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id):
                 is_bot=False,
                 message_id=message_id
             )
+        except IntegrityError:
+            log.warning(f"🛑 Mensaje duplicado detectado en DB (IntegrityError): {message_id}")
+            return
         except Exception as e:
             # Si falla por integridad (duplicado), abortamos
             if "UNIQUE constraint failed" in str(e) or "unique constraint" in str(e).lower():
@@ -667,15 +671,25 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id):
                 break
             except Exception as e:
                 error_texto = str(e).lower()
-                if "429" in error_texto or "resource_exhausted" in error_texto:
+                if "429" in error_texto:
                     log.warning(f"⚠️ Error de Límite de Tasa (429) detectado en hilo.")
                     if intento + 1 == max_reintentos:
-                        log.error("❌ Fallo definitivo después de reintentos. Notificando al cliente.")
+                        log.error("❌ Fallo definitivo por Rate Limit (429).")
                         send_whatsapp_message(sender_id, "😔 Disculpa, estamos recibiendo muchas consultas. Por favor, intenta nuevamente en un momento.")
                         return
                     
                     espera = (4 * (intento + 1)) + random.uniform(0, 2)
-                    log.warning(f"⏳ Esperando {espera:.2f} segundos para no saturar a Gemini...")
+                    log.warning(f"⏳ Esperando {espera:.2f} segundos (Rate Limit)...")
+                    time.sleep(espera)
+                elif "resource_exhausted" in error_texto:
+                    log.warning(f"⚠️ Error de Recurso Agotado (Quota Exceeded) detectado.")
+                    if intento + 1 == max_reintentos:
+                        log.error("❌ Fallo definitivo por Quota Exceeded.")
+                        send_whatsapp_message(sender_id, "😔 El sistema está saturado temporalmente. Intenta más tarde.")
+                        return
+                    
+                    espera = (10 * (intento + 1)) + random.uniform(0, 5) # Espera más larga para quota
+                    log.warning(f"⏳ Esperando {espera:.2f} segundos (Quota)...")
                     time.sleep(espera)
                 else:
                     log.error(f"❌ Error inesperado en Gemini: {e}")
@@ -900,12 +914,10 @@ def whatsapp_webhook(request):
                                             
                                     elif message_type == "text":
                                         message_id = message_event.get("id")
-                                        # Deduplicación: Si ya procesamos este ID, lo ignoramos
-                                        if cache.get(f"wamid_{message_id}"):
-                                            log.debug(f"🔁 Mensaje duplicado ignorado: {message_id}")
+                                        # Deduplicación ATÓMICA: cache.add retorna True si lo agregó, False si ya existía
+                                        if not cache.add(f"wamid_{message_id}", "processed", timeout=3600):
+                                            log.debug(f"🔁 Mensaje duplicado ignorado (cache hit): {message_id}")
                                             continue
-                                        # Marcamos como procesado por 1 hora
-                                        cache.set(f"wamid_{message_id}", "processed", timeout=3600)
 
                                         raw_text = message_event["text"]["body"]
                                         timestamp = message_event.get("timestamp")
