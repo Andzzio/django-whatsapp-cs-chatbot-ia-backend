@@ -674,8 +674,8 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id):
                         send_whatsapp_message(sender_id, "😔 Disculpa, estamos recibiendo muchas consultas. Por favor, intenta nuevamente en un momento.")
                         return
                     
-                    espera = (2 ** intento) + random.uniform(0, 1)
-                    log.warning(f"⏳ Esperando {espera:.2f} segundos...")
+                    espera = (4 * (intento + 1)) + random.uniform(0, 2)
+                    log.warning(f"⏳ Esperando {espera:.2f} segundos para no saturar a Gemini...")
                     time.sleep(espera)
                 else:
                     log.error(f"❌ Error inesperado en Gemini: {e}")
