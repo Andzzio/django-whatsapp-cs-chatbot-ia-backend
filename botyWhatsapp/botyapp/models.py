@@ -13,3 +13,4 @@ class Message(models.Model):
     text = models.TextField()
     is_bot = models.BooleanField(default=False)
     timestamp = models.DateTimeField(auto_now_add=True)
+    message_id = models.CharField(max_length=255, unique=True, null=True, blank=True)
