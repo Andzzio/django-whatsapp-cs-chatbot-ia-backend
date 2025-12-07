@@ -616,7 +616,7 @@ def send_whatsapp_message(receptor_wsp_id, text_answer):
         log.error(f"Error al enviar mensaje de Whatsapp {e}")
         log.error(f"❌ Respuesta del servidor: {e.response.text if e.response else 'Sin respuesta'}")
         return None
-def process_gemini_message(sender_id, raw_text, timestamp):
+def process_gemini_message(sender_id, raw_text, timestamp, message_id):
     try:
         log.debug(f"🧵 Procesando mensaje en background para: {sender_id}")
         try:
@@ -625,8 +625,21 @@ def process_gemini_message(sender_id, raw_text, timestamp):
             log.error(f"❌ Contacto no encontrado en hilo: {sender_id}")
             return
 
-        # Guardar mensaje del usuario
-        Message.objects.create(contact=contact_obj, text=raw_text.strip(), is_bot=False)
+        # Guardar mensaje del usuario con deduplicación DB
+        try:
+            Message.objects.create(
+                contact=contact_obj, 
+                text=raw_text.strip(), 
+                is_bot=False,
+                message_id=message_id
+            )
+        except Exception as e:
+            # Si falla por integridad (duplicado), abortamos
+            if "UNIQUE constraint failed" in str(e) or "unique constraint" in str(e).lower():
+                log.warning(f"🛑 Mensaje duplicado detectado en DB (race condition): {message_id}")
+                return
+            log.error(f"⚠️ Error al guardar mensaje (posible duplicado): {e}")
+            return
         
         if not contact_obj.is_bot_active:
             log.debug("🤖 Bot desactivado para este usuario.")
@@ -828,7 +841,7 @@ def whatsapp_webhook(request):
                                         # Lanzamos el hilo y respondemos 200 OK inmediatamente al webhook
                                         threading.Thread(
                                             target=process_gemini_message, 
-                                            args=(sender_id, raw_text, timestamp)
+                                            args=(sender_id, raw_text, timestamp, message_id)
                                         ).start()
                                         
                                         # No hacemos nada más aquí, el hilo se encarga
