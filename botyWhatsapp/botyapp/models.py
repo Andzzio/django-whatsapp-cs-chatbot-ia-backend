@@ -24,3 +24,4 @@ class Message(models.Model):
     message_type = models.CharField(max_length=10, choices=MESSAGE_TYPES, default='text')
     media_id = models.CharField(max_length=255, null=True, blank=True)
     caption = models.TextField(null=True, blank=True)
+    is_read = models.BooleanField(default=False)

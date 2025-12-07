@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 import botyapp.views
-from botyapp.api import sync_data, toggle_bot_status, send_message_to_contact, get_media, send_media_message
+from botyapp.api import sync_data, toggle_bot_status, send_message_to_contact, get_media, send_media_message, mark_messages_read
 
 urlpatterns = [
     #path('admin/', admin.site.urls),
@@ -28,4 +28,5 @@ urlpatterns = [
     path("api/contacts/<str:phone>/send-message/", send_message_to_contact, name="send_message"),
     path("api/media/<str:media_id>/", get_media, name="get_media"),
     path("api/contacts/<str:phone>/send-media/", send_media_message, name="send_media"),
+    path("api/contacts/<str:phone>/mark-read/", mark_messages_read, name="mark_read"),
 ]

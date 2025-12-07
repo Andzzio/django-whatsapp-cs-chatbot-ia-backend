@@ -34,6 +34,7 @@ def sync_data(request):
                 "name": contact.name,
                 "phone": contact.phone,
                 "is_bot_active": contact.is_bot_active,
+                "unread_count": contact.messages.filter(is_read=False, is_bot=False).count(),
                 "history": msgs
             })
         return JsonResponse({"contacts": response_data}, safe=False)
@@ -145,6 +146,22 @@ def toggle_bot_status(request, phone):
             contact.bot_disabled_at = None
         contact.save()
         return JsonResponse({"status": "success", "is_bot_active": contact.is_bot_active})
+
+@csrf_exempt
+def mark_messages_read(request, phone):
+    token = request.headers.get("Authorization")
+    if token != settings.DASH_TOKEN:
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+    
+    if request.method == "POST":
+        try:
+            contact = Contact.objects.get(phone=phone)
+            # Marcar como leídos solo los mensajes recibidos (is_bot=False)
+            contact.messages.filter(is_bot=False, is_read=False).update(is_read=True)
+            return JsonResponse({"status": "success"})
+        except Contact.DoesNotExist:
+            return JsonResponse({"error": "Contact not found"}, status=404)
+    return JsonResponse({"error": "Method not allowed"}, status=405)
 
 @csrf_exempt
 def send_message_to_contact(request, phone):
