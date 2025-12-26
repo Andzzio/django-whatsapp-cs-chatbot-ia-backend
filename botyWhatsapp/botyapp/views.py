@@ -1034,11 +1034,18 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id, media_id=
                 if media_url:
                     image_bytes = download_and_optimize_image(media_url)
                     if image_bytes:
-                        gemini_contents.append(
-                            types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+                        # Instrucción de análisis visual (SIEMPRE se agrega, haya texto o no)
+                        analysis_instruction = (
+                            "\n\n[INSTRUCCIÓN DE VISIÓN]: La imagen adjunta es lo que el cliente quiere. "
+                            "Analiza el ESTAMPADO, COLOR y CORTE. "
+                            "Busca en tu catálogo el nombre EXACTO que coincida y EJECUTA 'recommend_products'. "
+                            "Si el cliente hizo una pregunta, respóndela basándote en ese producto identificado."
                         )
-                        if not text_body:
-                            text_body = "Identifica el nombre exacto de esta prenda del catálogo. Sé preciso."
+                        
+                        if text_body:
+                            text_body += analysis_instruction
+                        else:
+                            text_body = analysis_instruction.strip()
                             
             elif media_type == "audio":
                 # Flujo de Audio: Oído sónico
@@ -1050,7 +1057,7 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id, media_id=
                             types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")
                         )
                         if not text_body:
-                            text_body = "Escucha este audio del cliente y responde a su consulta actuando como el vendedor experto." # Prompt implícito para audio
+                            text_body = "Escucha el audio, identifica qué busca el cliente y EJECUTA 'recommend_products' o la función necesaria. NO pidas confirmación, actúa." # Prompt implícito para audio
         
         # Agregar el texto (ya sea del usuario o el implícito)
         gemini_contents.append(text_body)
