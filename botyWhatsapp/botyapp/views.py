@@ -779,52 +779,82 @@ def get_catalog_context(catalog_id):
 
 
 def search_and_send_products(sender_id, search_term):
-    """Filtra productos y envía una lista nativa de WhatsApp"""
+    """Filtra productos y envía resultados priorizando la relevancia y UX visual"""
     try:
         products_dict = cache.get(f"catalog_products_{settings.CATALOG_ID}")
         if not products_dict:
             products_dict = sync_catalog_products(settings.CATALOG_ID)
-
-        matches = []
-        term = search_term.lower()
-
+            
+        scored_products = []
+        tokens = search_term.lower().split()
+        
+        # Algoritmo de Ranking por Relevancia
         for pid, prod in products_dict.items():
+            score = 0
             name = prod.get("name", "").lower()
             desc = prod.get("description", "").lower()
-            if term in name or term in desc:
-                matches.append(prod)
-
-        if not matches:
-            send_whatsapp_message(
-                sender_id,
-                f"Mmm, no encontré exactamente '{search_term}', pero aquí tienes todo nuestro catálogo para que explores. 👇",
-            )
+            
+            # Coincidencia exacta de frase (Premio Mayor)
+            if search_term.lower() in name:
+                score += 50
+            
+            # Coincidencia de palabras clave
+            for token in tokens:
+                if token in name:
+                    score += 10 # Nombre vale más
+                if token in desc:
+                    score += 3  # Descripción ayuda
+            
+            if score > 0:
+                scored_products.append((score, prod))
+                
+        if not scored_products:
+            send_whatsapp_message(sender_id, f"Mmm, busqué '{search_term}' pero no vi nada exacto. 🤔 ¡Pero mira todo lo que tenemos! 👇")
             send_catalog_message(sender_id)
             return
 
-        # Limitar a 10 productos para la lista section
-        matches = matches[:10]
-
-        product_items = []
-        for prod in matches:
-            product_items.append({"product_retailer_id": prod["retailer_id"]})
-
-        sections = [
-            {"title": f"Resultados: {search_term[:20]}", "product_items": product_items}
-        ]
-
-        send_product_list_message(
-            sender_id,
-            settings.CATALOG_ID,
-            sections,
-            header_text=f"Lo mejor en {search_term}",
-            body_text="¡Mira estos modelos que seleccioné para ti! 😍",
+        # Ordenar por puntaje (Mayor a menor)
+        scored_products.sort(key=lambda x: x[0], reverse=True)
+        matches = [p[1] for p in scored_products]
+        
+        # 1. Enviar el GANADOR como Tarjeta Única (Botón directo de compra)
+        top_match = matches[0]
+        send_product_message(
+            sender_id, 
+            settings.CATALOG_ID, 
+            top_match["retailer_id"],
+            body_text=f"¡Encontré esto! 😍 Creo que es justo lo que buscas."
         )
-        log.debug(f"✅ Productos recomendados enviados a {sender_id}")
-
+        
+        # 2. Si hay más alternativas (máx 9 más), enviarlas en lista
+        remaining_matches = matches[1:10]
+        if remaining_matches:
+            product_items = []
+            for prod in remaining_matches:
+                product_items.append({
+                    "product_retailer_id": prod["retailer_id"]
+                })
+                
+            sections = [
+                {
+                    "title": "Otras opciones similares",
+                    "product_items": product_items
+                }
+            ]
+            
+            send_product_list_message(
+                sender_id, 
+                settings.CATALOG_ID, 
+                sections, 
+                header_text=f"Más coincidencias", 
+                body_text="Aquí hay otros modelos que te podrían gustar. �"
+            )
+            
+        log.debug(f"✅ Productos enviados a {sender_id} (Top: {top_match['name']})")
+        
     except Exception as e:
         log.error(f"Error recomendando productos: {e}")
-        send_catalog_message(sender_id)  # Fallback
+        send_catalog_message(sender_id) # Fallback
 
 
 def get_whatsapp_media_url(media_id):
@@ -865,12 +895,74 @@ def download_and_optimize_image(url):
         return None
 
 
-def process_gemini_message(sender_id, raw_text, timestamp, message_id, media_id=None):
+def mark_whatsapp_read(message_id):
+    """Marca un mensaje como leído (Blue Check)"""
     try:
-        log.debug(
-            f"🧵 Procesando mensaje en background para: {sender_id} (Media: {media_id})"
-        )
+        url = settings.WHATSAPP_URL
+        headers = {
+            "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        data = {"messaging_product": "whatsapp", "status": "read", "message_id": message_id}
+        requests.post(url, headers=headers, json=data)
+    except Exception as e:
+        log.error(f"Error marcando leído: {e}")
 
+def send_typing_indicator(recipient_id):
+    """Muestra el estado 'Escribiendo...' al usuario"""
+    try:
+        url = settings.WHATSAPP_URL
+        headers = {
+            "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        data = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": recipient_id,
+            "type": "interactive", # Bug común: Para status suele usarse un endpoint distinto o type='action' dependiendo de la versión, pero 'fulfillment' standard es así:
+            # CORRECCIÓN: El endpoint correcto para status de writing es este:
+        } 
+        # WhatsApp status es un mensaje normal con type='text' vacío? No, es un comando especial.
+        # Implementación correcta según Meta Graph API:
+        # POST /v13.0/{phone-number-id}/messages
+        # { "messaging_product": "whatsapp", "recipient_type": "individual", "to": "...", "type": "text", "text": {...} } NO.
+        
+        # Real Typing Indicator Payload:
+        # { "messaging_product": "whatsapp", "to": "...", "type": "action", "action": {"name": "sending_flow_event", "parameters": {"flow_message_version": "3", "flow_token": "unused", "mode": "draft", "flow_id": "..."} } } NO.
+        
+        # OK, la API oficial para "typing" no está siempre disponible en todas las versiones lite.
+        # Pero intentaremos no "bloquear" con esto. 
+        # En la API Cloud Standard, el 'status' no es tan directo como en la On-Premise.
+        # Sin embargo, lo más cercano es simplemente responder rápido.
+        
+        # Si no hay endpoint oficial fácil en esta versión, lo omitimos para no causar errores 400.
+        pass 
+    except Exception:
+        pass
+
+# NOTA: En la Cloud API, enviar el estado "typing" no está 100% documentado igual que en On-Premise.
+# Investigando... Ah, sí, se puede enviar un mensaje vacío o simplemente procesar rápido.
+# Para evitar bugs, vamos a centrarnos en el Audio.
+
+def download_audio(url):
+    """Descarga el audio para Gemini, retorna bytes"""
+    headers = {"Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}"}
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.content
+    except Exception as e:
+        log.error(f"Error descargando audio: {e}")
+        return None
+
+def process_gemini_message(sender_id, raw_text, timestamp, message_id, media_id=None, media_type="image"):
+    try:
+        log.debug(f"🧵 Procesando mensaje en background para: {sender_id} (Media: {media_id} - {media_type})")
+        
+        # Marcar como leído
+        mark_whatsapp_read(message_id)
+        
         # 1. Cancelar timer anterior al recibir mensaje nuevo
         cancel_timer(sender_id)
 
@@ -934,19 +1026,32 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id, media_id=
         gemini_contents = []
 
         if media_id:
-            # Flujo de Imagen: Descargar y preparar para Gemini
-            log.debug("📸 Procesando imagen para Gemini Vision...")
             media_url = get_whatsapp_media_url(media_id)
-            if media_url:
-                image_bytes = download_and_optimize_image(media_url)
-                if image_bytes:
-                    gemini_contents.append(
-                        types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
-                    )
-                    # Si no hay texto, agregamos un prompt implícito para búsqueda
-                    if not text_body:
-                        text_body = "Analiza esta imagen, describe la prenda detalladamente y busca algo similar en el catálogo."
-
+            
+            if media_type == "image":
+                # Flujo de Imagen: Descargar y preparar para Gemini
+                log.debug("📸 Procesando imagen para Gemini Vision...")
+                if media_url:
+                    image_bytes = download_and_optimize_image(media_url)
+                    if image_bytes:
+                        gemini_contents.append(
+                            types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+                        )
+                        if not text_body:
+                            text_body = "Identifica el nombre exacto de esta prenda del catálogo. Sé preciso."
+                            
+            elif media_type == "audio":
+                # Flujo de Audio: Oído sónico
+                log.debug("🎙️ Procesando audio para Gemini...")
+                if media_url:
+                    audio_bytes = download_audio(media_url)
+                    if audio_bytes:
+                        gemini_contents.append(
+                            types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")
+                        )
+                        if not text_body:
+                            text_body = "Escucha este audio del cliente y responde a su consulta actuando como el vendedor experto." # Prompt implícito para audio
+        
         # Agregar el texto (ya sea del usuario o el implícito)
         gemini_contents.append(text_body)
 
@@ -1127,6 +1232,7 @@ def whatsapp_webhook(request):
                                 for message_event in value.get("messages", []):
                                     message_type = message_event.get("type")
                                     sender_id = message_event["from"]
+                                    wamid = message_event.get("id") # Define wamid here for all message types
                                     log.debug(
                                         f"RECUPERANDO EL NOMBRE DEL CLIENTE {get_user_name(sender_id)}"
                                     )
@@ -1149,7 +1255,7 @@ def whatsapp_webhook(request):
                                         image = message_event.get("image")
                                         image_id = image.get("id")
                                         caption = image.get("caption", "")
-                                        wamid = message_event.get("id")
+                                        # wamid = message_event.get("id") # Already defined above
 
                                         # Guardar mensaje del usuario SIEMPRE
                                         try:
@@ -1192,6 +1298,7 @@ def whatsapp_webhook(request):
                                                 message_event.get("timestamp"),
                                                 wamid,  # message_id
                                                 image_id,  # media_id
+                                                "image" # media_type
                                             ),
                                         ).start()
 
@@ -1199,8 +1306,42 @@ def whatsapp_webhook(request):
                                         # (Opcional, a veces es mejor responder directo cuando termine)
                                         send_whatsapp_message(
                                             sender_id,
-                                            "🔎 *Déjame ver esa foto... buscadando en el closet...* 🧐",
+                                            "🔎 *Un segundo, estoy viendo tu foto...* 🧐",
                                         )
+
+                                    elif message_type == "audio":
+                                        contact_obj = Contact.objects.get(
+                                            phone=sender_id
+                                        )
+                                        audio = message_event.get("audio")
+                                        audio_id = audio.get("id")
+                                        
+                                        # Guardar mensaje de audio (placeholder)
+                                        try:
+                                            Message.objects.create(
+                                                contact=contact_obj,
+                                                text="*Nota de voz*",
+                                                is_bot=False,
+                                                message_id=wamid,
+                                                message_type="audio",
+                                                media_id=audio_id,
+                                            )
+                                        except IntegrityError:
+                                            pass
+
+                                        log.debug("🎙️ AUDIO DETECTADO")
+                                        
+                                        threading.Thread(
+                                            target=process_gemini_message,
+                                            args=(
+                                                sender_id,
+                                                "", # Texto vacío
+                                                message_event.get("timestamp"),
+                                                wamid,
+                                                audio_id,
+                                                "audio"
+                                            ),
+                                        ).start()
 
                                     elif message_type == "interactive":
                                         contact_obj = Contact.objects.get(
