@@ -1090,13 +1090,6 @@ def process_gemini_message(
                 if media_url:
                     image_bytes = download_and_optimize_image(media_url)
                     if image_bytes:
-                        # [CRÍTICO] Adjuntar imagen para que Gemini la vea (había sido borrado)
-                        gemini_contents.append(
-                            types.Part.from_bytes(
-                                data=image_bytes, mime_type="image/jpeg"
-                            )
-                        )
-
                         # 0. BÚSQUEDA VISUAL (Híbrida: pHash + Computer Vision)
                         detected_product_id = None
 
@@ -1174,16 +1167,26 @@ def process_gemini_message(
                             except Exception as e:
                                 log.error(f"Error en pHash: {e}")
 
-                        # 1. Definir Prompt
+                        # [CRÍTICO] Si encontramos un match visual exacto, BYPASS IAM (Gemini) COMPLETAMENTE
                         if detected_product_id:
-                            # Si pHash encontró match, FORZAMOS ese ID.
-                            analysis_instruction = (
-                                f"\n\n[SISTEMA DE VISIÓN]: He identificado matemáticamente que este producto es el ID: {detected_product_id}. "
-                                "NO analices la imagen. NO preguntes. "
-                                f"EJECUTA 'recommend_products' inmediatamente con el término '{detected_product_id}' para mostrarlo."
+                            log.info(
+                                f"🚀 BYPASS AI ACTIVADO: Producto encontrado visualmente ({detected_product_id}). Enviando directo."
                             )
-                        else:
-                            # Prompt de respaldo (IA analiza)
+                            search_and_send_products(
+                                sender_id, str(detected_product_id)
+                            )
+                            return  # Exit the function as the product has been handled
+
+                        # Si NO hay match visual, entonces sí usamos la IA para analizar
+                        if image_bytes:
+                            # Adjuntar imagen para que Gemini la vea
+                            gemini_contents.append(
+                                types.Part.from_bytes(
+                                    data=image_bytes, mime_type="image/jpeg"
+                                )
+                            )
+
+                            # Prompt General para cuando NO hay match directo
                             analysis_instruction = (
                                 "\n\n[INSTRUCCIÓN DE VISIÓN GENERAL]: Tienes el Catálogo completo en tu System Prompt. "
                                 "1. Analiza el patrón visual de la imagen (colores, formas, corte). "
