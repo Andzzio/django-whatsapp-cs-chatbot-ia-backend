@@ -1167,40 +1167,36 @@ def process_gemini_message(
                             except Exception as e:
                                 log.error(f"Error en pHash: {e}")
 
-                        # [CRÍTICO] Si encontramos un match visual exacto, BYPASS IAM (Gemini) COMPLETAMENTE
-                        if detected_product_id:
-                            log.info(
-                                f"🚀 BYPASS AI ACTIVADO: Producto encontrado visualmente ({detected_product_id}). Enviando directo."
-                            )
-                            search_and_send_products(
-                                sender_id, str(detected_product_id)
-                            )
-                            return  # Exit the function as the product has been handled
+                        # [MODO SEGURO - USUARIO SOLICITA SOLO CATÁLOGO]
+                        # El usuario reportó que la detección visual falla y prefiere enviar el catálogo.
+                        # Conservamos el cálculo de CV/pHash arriba (por si se reactiva futuro), pero no actuamos.
 
-                        # Si NO hay match visual, entonces sí usamos la IA para analizar
+                        # if detected_product_id:
+                        #     log.info(f"🚀 BYPASS AI ACTIVADO: Producto encontrado visualmente ({detected_product_id}). Enviando directo.")
+                        #     search_and_send_products(sender_id, str(detected_product_id))
+                        #     return
+
+                        # Si hay imagen, en lugar de adivinar, enviamos el catálogo directo.
                         if image_bytes:
-                            # Adjuntar imagen para que Gemini la vea
-                            gemini_contents.append(
-                                types.Part.from_bytes(
-                                    data=image_bytes, mime_type="image/jpeg"
-                                )
+                            # 1. Enviar mensaje amigable
+                            send_whatsapp_message(
+                                sender_id,
+                                "¡Me encanta ese estilo! 😍 Mira, aquí tienes nuestro catálogo completo para que encuentres ese modelo y muchos más: 👇",
                             )
+                            # 2. Enviar catálogo
+                            send_catalog_message(sender_id)
+                            # 3. Detener flujo aquí (no pasamos a Gemini)
+                            return
 
-                            # Prompt General para cuando NO hay match directo
-                            analysis_instruction = (
-                                "\n\n[INSTRUCCIÓN DE VISIÓN GENERAL]: Tienes el Catálogo completo en tu System Prompt. "
-                                "1. Analiza el patrón visual de la imagen (colores, formas, corte). "
-                                "2. COMPARALO con la lista de productos disponibles. "
-                                "3. Encuentra el producto cuyo NOMBRE o DESCRIPCIÓN coincida mejor con la foto. "
-                                "4. SELECCIONA ese producto específico del catálogo. "
-                                "5. EJECUTA 'recommend_products' con el NOMBRE EXACTO de ese producto."
-                                "\n⚠️ IMPORTANTE: No inventes nombres. Usa solo los que están en la lista."
-                            )
+                        # (Código Legacy Desactivado)
+                        # if image_bytes:
+                        #    gemini_contents.append(...)
+                        #    analysis_instruction = ...
 
-                        if text_body:
-                            text_body += analysis_instruction
-                        else:
-                            text_body = analysis_instruction.strip()
+                        # if text_body:
+                        #     text_body += analysis_instruction
+                        # else:
+                        #     text_body = analysis_instruction.strip()
 
             elif media_type == "audio":
                 # Flujo de Audio: Oído sónico
