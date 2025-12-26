@@ -19,6 +19,19 @@ import io
 import difflib  # ✨ Fuzzy Matching para búsqueda certera
 
 try:
+    import cv2
+    import numpy as np
+except ImportError:
+    cv2 = None
+    np = None
+    log.warning(
+        "⚠️ OpenCV/Numpy no instalado. Búsqueda visual por características desactivada."
+    )
+
+# Diccionario global para features visuales (ORB)
+catalog_descriptors = {}
+
+try:
     import imagehash
 except ImportError:
     imagehash = None
@@ -157,19 +170,35 @@ def sync_catalog_products(catalog_id):
                         "phash": None,  # Placeholder
                     }
 
-                    # 📸 Generar Huella Digital Visual (Hashing)
-                    if imagehash and product.get("image_url"):
+                    # 📸 Generar Huella Digital Visual (Hashing + CV)
+                    if product.get("image_url"):
                         try:
-                            # Descarga rápida para hashear
+                            # Descarga rápida
                             img_resp = requests.get(product.get("image_url"), timeout=5)
                             if img_resp.status_code == 200:
-                                img = Image.open(io.BytesIO(img_resp.content))
-                                # Calculamos el hash perceptual (pHash)
-                                p_hash = str(imagehash.phash(img))
-                                products_dict[retailer_id]["phash"] = p_hash
+                                image_data = img_resp.content
+
+                                # 1. pHash (Respaldo)
+                                if imagehash:
+                                    img_pil = Image.open(io.BytesIO(image_data))
+                                    p_hash = str(imagehash.phash(img_pil))
+                                    products_dict[retailer_id]["phash"] = p_hash
+
+                                # 2. Computer Vision (ORB Features) - "Manera Profesional"
+                                if cv2 and np:
+                                    # Convertir bytes a array numpy para OpenCV
+                                    nparr = np.frombuffer(image_data, np.uint8)
+                                    img_cv = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+
+                                    if img_cv is not None:
+                                        orb = cv2.ORB_create(nfeatures=500)
+                                        kp, des = orb.detectAndCompute(img_cv, None)
+                                        if des is not None:
+                                            catalog_descriptors[retailer_id] = des
+
                         except Exception as e:
                             log.warning(
-                                f"No se pudo generar hash para {retailer_id}: {e}"
+                                f"No se pudo procesar visión para {retailer_id}: {e}"
                             )
 
             # Verificar si hay más páginas
@@ -1068,9 +1097,56 @@ def process_gemini_message(
                             )
                         )
 
-                        # 0. BÚSQUEDA VISUAL EXACTA (pHash)
+                        # 0. BÚSQUEDA VISUAL (Híbrida: pHash + Computer Vision)
                         detected_product_id = None
-                        if imagehash:
+
+                        # A) Intento con Computer Vision (ORB) - El más robusto para patrones/overlays
+                        if cv2 and np and catalog_descriptors:
+                            try:
+                                nparr = np.frombuffer(image_bytes, np.uint8)
+                                user_cv_img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+                                if user_cv_img is not None:
+                                    orb = cv2.ORB_create(nfeatures=500)
+                                    kp_user, des_user = orb.detectAndCompute(
+                                        user_cv_img, None
+                                    )
+
+                                    if des_user is not None:
+                                        bf = cv2.BFMatcher(
+                                            cv2.NORM_HAMMING, crossCheck=True
+                                        )
+                                        best_matches_count = 0
+
+                                        for (
+                                            cat_id,
+                                            cat_des,
+                                        ) in catalog_descriptors.items():
+                                            matches = bf.match(des_user, cat_des)
+                                            # Ordenar por distancia (mejores primero)
+                                            matches = sorted(
+                                                matches, key=lambda x: x.distance
+                                            )
+                                            # Tomar los top 50 matches
+                                            good_matches = [
+                                                m for m in matches if m.distance < 60
+                                            ]  # Umbral de calidad
+
+                                            if len(good_matches) > best_matches_count:
+                                                best_matches_count = len(good_matches)
+                                                if (
+                                                    best_matches_count > 20
+                                                ):  # Mínimo matches para considerar válido
+                                                    detected_product_id = cat_id
+
+                                        if detected_product_id:
+                                            log.info(
+                                                f"👁️ CV MATCH (ORB): {detected_product_id} con {best_matches_count} coincidencias."
+                                            )
+                            except Exception as e:
+                                log.error(f"Error en CV Match: {e}")
+
+                        # B) Respaldo con pHash (Si CV falló o no está disponible)
+                        if not detected_product_id and imagehash:
                             try:
                                 user_img = Image.open(io.BytesIO(image_bytes))
                                 user_hash = imagehash.phash(user_img)
@@ -1080,7 +1156,6 @@ def process_gemini_message(
                                 )
                                 if products_dict:
                                     best_dist = 100
-
                                     for pid, prod in products_dict.items():
                                         if prod.get("phash"):
                                             cat_hash = imagehash.hex_to_hash(
@@ -1089,18 +1164,15 @@ def process_gemini_message(
                                             dist = user_hash - cat_hash
                                             if dist < best_dist:
                                                 best_dist = dist
-                                                if (
-                                                    dist < 15
-                                                ):  # Umbral de similitud (Menor es mas igual)
+                                                if dist < 12:  # Umbral estricto
                                                     detected_product_id = pid
-
                                     if detected_product_id:
                                         log.info(
-                                            f"🎯 MATCH VISUAL DETECTADO: {detected_product_id} (Dist: {best_dist})"
+                                            f"🎯 pHash MATCH: {detected_product_id} (Dist: {best_dist})"
                                         )
 
                             except Exception as e:
-                                log.error(f"Error en hashing visual: {e}")
+                                log.error(f"Error en pHash: {e}")
 
                         # 1. Definir Prompt
                         if detected_product_id:
@@ -1113,15 +1185,13 @@ def process_gemini_message(
                         else:
                             # Prompt de respaldo (IA analiza)
                             analysis_instruction = (
-                                "\n\n[INSTRUCCIÓN DE VISIÓN CRÍTICA]: La imagen adjunta es lo que el cliente quiere VERIFICAR. "
-                                "1. Analiza el ESTAMPADO (Tribal, Hojas, etc). "
-                                "2. Busca en tu SYSTEM PROMPT (Catálogo) el producto que tenga ese estampado y color EXACTO. "
-                                "3. EXTRAE EL ID (retailer_id) de ese producto. (Ej: '12345'). "
-                                "4. EJECUTA 'recommend_products' usando EL ID como término de búsqueda. "
-                                "5. Si no encuentras el ID exacto, usa el nombre detallado.\n"
-                                "⚠️ REGLA DE ORO: NO PREGUNTES '¿Qué prenda es?'. NO PIDAS CONFIRMACIÓN. "
-                                "Simplemente asume que tu identificación es correcta y EJECUTA la herramienta. "
-                                "El cliente quiere ver productos, no chatear sobre qué ve."
+                                "\n\n[INSTRUCCIÓN DE VISIÓN GENERAL]: Tienes el Catálogo completo en tu System Prompt. "
+                                "1. Analiza el patrón visual de la imagen (colores, formas, corte). "
+                                "2. COMPARALO con la lista de productos disponibles. "
+                                "3. Encuentra el producto cuyo NOMBRE o DESCRIPCIÓN coincida mejor con la foto. "
+                                "4. SELECCIONA ese producto específico del catálogo. "
+                                "5. EJECUTA 'recommend_products' con el NOMBRE EXACTO de ese producto."
+                                "\n⚠️ IMPORTANTE: No inventes nombres. Usa solo los que están en la lista."
                             )
 
                         if text_body:
