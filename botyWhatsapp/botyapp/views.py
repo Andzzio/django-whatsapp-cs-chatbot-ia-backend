@@ -16,7 +16,15 @@ from .models import Contact, Message
 from django.db import IntegrityError
 from PIL import Image
 import io
-import difflib # ✨ Fuzzy Matching para búsqueda certera
+import difflib  # ✨ Fuzzy Matching para búsqueda certera
+
+try:
+    import imagehash
+except ImportError:
+    imagehash = None
+    log.warning(
+        "⚠️ ImageHash no instalado. La búsqueda visual exacta no funcionará hasta instalarlo."
+    )
 
 
 # COMENTARIO PARA HACER UN TEST COMMIT
@@ -146,7 +154,23 @@ def sync_catalog_products(catalog_id):
                         "description": product.get("description", ""),
                         "retailer_id": retailer_id,
                         "image_url": product.get("image_url", ""),
+                        "phash": None,  # Placeholder
                     }
+
+                    # 📸 Generar Huella Digital Visual (Hashing)
+                    if imagehash and product.get("image_url"):
+                        try:
+                            # Descarga rápida para hashear
+                            img_resp = requests.get(product.get("image_url"), timeout=5)
+                            if img_resp.status_code == 200:
+                                img = Image.open(io.BytesIO(img_resp.content))
+                                # Calculamos el hash perceptual (pHash)
+                                p_hash = str(imagehash.phash(img))
+                                products_dict[retailer_id]["phash"] = p_hash
+                        except Exception as e:
+                            log.warning(
+                                f"No se pudo generar hash para {retailer_id}: {e}"
+                            )
 
             # Verificar si hay más páginas
             url = data.get("paging", {}).get("next")
@@ -760,7 +784,7 @@ def get_catalog_context(catalog_id):
             price = product.get("price", "Consultar")
             sale_price = product.get("sale_price")
             # [MEJORA] No recortar la descripción para permitir búsqueda semántica profunda
-            description = product.get("description", "") 
+            description = product.get("description", "")
             category = product.get("category", "")
 
             catalog_text += f"- {name} (ID: {retailer_id})\n"
@@ -790,7 +814,7 @@ def search_and_send_products(sender_id, search_term):
         products_dict = cache.get(f"catalog_products_{settings.CATALOG_ID}")
         if not products_dict:
             products_dict = sync_catalog_products(settings.CATALOG_ID)
-            
+
         # 0. Búsqueda Determinista por ID (Vía de Alta Velocidad)
         # Si la IA nos pasa un ID exacto, no perdemos tiempo adivinando.
         term_clean = search_term.strip()
@@ -798,88 +822,86 @@ def search_and_send_products(sender_id, search_term):
             log.debug(f"🎯 Match Exacto por ID detectado: {term_clean}")
             top_match = products_dict[term_clean]
             send_product_message(
-                sender_id, 
-                settings.CATALOG_ID, 
+                sender_id,
+                settings.CATALOG_ID,
                 top_match["retailer_id"],
-                body_text=f"¡Aquí está! Tal como lo pediste. 😎"
+                body_text="¡Aquí está! Tal como lo pediste. 😎",
             )
             return
 
         scored_products = []
         term_clean = search_term.lower().strip()
         tokens = term_clean.split()
-        
+
         # 1. Filtro Candidatos: Seleccionar solo productos que tengan AL MENOS UNA coincidencia
         candidates = []
         for pid, prod in products_dict.items():
             name = prod.get("name", "").lower()
             if any(token in name for token in tokens):
                 candidates.append(prod)
-                
+
         # 2. Ranking Difuso (Fuzzy): Comparar similitud entre 'Search Term' y 'Nombre Producto'
         for prod in candidates:
             name = prod.get("name", "").lower()
             # SequenceMatcher calcula qué tanto se parecen las frases (0.0 a 1.0)
             # Esto penaliza si el producto tiene palabras que NO están en la búsqueda (ej: 'Hojas' vs 'Tribal')
             similarity = difflib.SequenceMatcher(None, term_clean, name).ratio()
-            
+
             # Bonus por contención exacta: Si la palabra clave rara (ej: Tribal) está, subir score.
             # Pero difflib ya maneja esto bastante bien.
-            
+
             scored_products.append((similarity, prod))
-            
+
         if not scored_products:
             # Fallback a búsqueda laxa si no hay nada
-            send_whatsapp_message(sender_id, f"Mmm, busqué '{search_term}' pero no vi nada exacto. 🤔 ¡Pero mira todo lo que tenemos! 👇")
+            send_whatsapp_message(
+                sender_id,
+                f"Mmm, busqué '{search_term}' pero no vi nada exacto. 🤔 ¡Pero mira todo lo que tenemos! 👇",
+            )
             send_catalog_message(sender_id)
             return
 
         # Ordenar por similitud (Mayor a menor)
         scored_products.sort(key=lambda x: x[0], reverse=True)
-        
+
         # Filtrar basura: Si la similitud es muy baja (< 0.2), quizás no deberíamos mandarlo como 'match exacto'.
         # Pero mejor mandamos el mejor que tengamos.
-        
+
         matches = [p[1] for p in scored_products]
-        
+
         # 1. Enviar el GANADOR
         top_match = matches[0]
         send_product_message(
-            sender_id, 
-            settings.CATALOG_ID, 
+            sender_id,
+            settings.CATALOG_ID,
             top_match["retailer_id"],
-            body_text=f"¡Lo encontré! 😍 Es el {top_match['name']}."
+            body_text=f"¡Lo encontré! 😍 Es el {top_match['name']}.",
         )
-        
+
         # 2. Lista de alternativas
         remaining_matches = matches[1:10]
         if remaining_matches:
             product_items = []
             for prod in remaining_matches:
-                product_items.append({
-                    "product_retailer_id": prod["retailer_id"]
-                })
-                
-            sections = [
-                {
-                    "title": "Otras opciones",
-                    "product_items": product_items
-                }
-            ]
-            
+                product_items.append({"product_retailer_id": prod["retailer_id"]})
+
+            sections = [{"title": "Otras opciones", "product_items": product_items}]
+
             send_product_list_message(
-                sender_id, 
-                settings.CATALOG_ID, 
-                sections, 
-                header_text=f"Más opciones similares", 
-                body_text="Aquí tienes otros modelos parecidos. 👇"
+                sender_id,
+                settings.CATALOG_ID,
+                sections,
+                header_text="Más opciones similares",
+                body_text="Aquí tienes otros modelos parecidos. 👇",
             )
-            
-        log.debug(f"✅ Productos enviados a {sender_id} (Top: {top_match['name']} - Score: {scored_products[0][0]:.2f})")
-        
+
+        log.debug(
+            f"✅ Productos enviados a {sender_id} (Top: {top_match['name']} - Score: {scored_products[0][0]:.2f})"
+        )
+
     except Exception as e:
         log.error(f"Error recomendando productos: {e}")
-        send_catalog_message(sender_id) # Fallback
+        send_catalog_message(sender_id)  # Fallback
 
 
 def get_whatsapp_media_url(media_id):
@@ -928,47 +950,22 @@ def mark_whatsapp_read(message_id):
             "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
             "Content-Type": "application/json",
         }
-        data = {"messaging_product": "whatsapp", "status": "read", "message_id": message_id}
+        data = {
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": message_id,
+        }
         requests.post(url, headers=headers, json=data)
     except Exception as e:
         log.error(f"Error marcando leído: {e}")
 
-def send_typing_indicator(recipient_id):
-    """Muestra el estado 'Escribiendo...' al usuario"""
-    try:
-        url = settings.WHATSAPP_URL
-        headers = {
-            "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
-            "Content-Type": "application/json",
-        }
-        data = {
-            "messaging_product": "whatsapp",
-            "recipient_type": "individual",
-            "to": recipient_id,
-            "type": "interactive", # Bug común: Para status suele usarse un endpoint distinto o type='action' dependiendo de la versión, pero 'fulfillment' standard es así:
-            # CORRECCIÓN: El endpoint correcto para status de writing es este:
-        } 
-        # WhatsApp status es un mensaje normal con type='text' vacío? No, es un comando especial.
-        # Implementación correcta según Meta Graph API:
-        # POST /v13.0/{phone-number-id}/messages
-        # { "messaging_product": "whatsapp", "recipient_type": "individual", "to": "...", "type": "text", "text": {...} } NO.
-        
-        # Real Typing Indicator Payload:
-        # { "messaging_product": "whatsapp", "to": "...", "type": "action", "action": {"name": "sending_flow_event", "parameters": {"flow_message_version": "3", "flow_token": "unused", "mode": "draft", "flow_id": "..."} } } NO.
-        
-        # OK, la API oficial para "typing" no está siempre disponible en todas las versiones lite.
-        # Pero intentaremos no "bloquear" con esto. 
-        # En la API Cloud Standard, el 'status' no es tan directo como en la On-Premise.
-        # Sin embargo, lo más cercano es simplemente responder rápido.
-        
-        # Si no hay endpoint oficial fácil en esta versión, lo omitimos para no causar errores 400.
-        pass 
-    except Exception:
-        pass
 
-# NOTA: En la Cloud API, enviar el estado "typing" no está 100% documentado igual que en On-Premise.
-# Investigando... Ah, sí, se puede enviar un mensaje vacío o simplemente procesar rápido.
-# Para evitar bugs, vamos a centrarnos en el Audio.
+def send_typing_indicator(recipient_id):
+    """Muestra el estado 'Escribiendo...' al usuario (Placeholder)"""
+    # En la API Cloud Standard, el indicador de 'typing' no es tan simple de invocar como en On-Premise.
+    # Por ahora lo dejamos como placeholder para evitar errores de linter.
+    pass
+
 
 def download_audio(url):
     """Descarga el audio para Gemini, retorna bytes"""
@@ -981,13 +978,18 @@ def download_audio(url):
         log.error(f"Error descargando audio: {e}")
         return None
 
-def process_gemini_message(sender_id, raw_text, timestamp, message_id, media_id=None, media_type="image"):
+
+def process_gemini_message(
+    sender_id, raw_text, timestamp, message_id, media_id=None, media_type="image"
+):
     try:
-        log.debug(f"🧵 Procesando mensaje en background para: {sender_id} (Media: {media_id} - {media_type})")
-        
+        log.debug(
+            f"🧵 Procesando mensaje en background para: {sender_id} (Media: {media_id} - {media_type})"
+        )
+
         # Marcar como leído
         mark_whatsapp_read(message_id)
-        
+
         # 1. Cancelar timer anterior al recibir mensaje nuevo
         cancel_timer(sender_id)
 
@@ -1052,28 +1054,81 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id, media_id=
 
         if media_id:
             media_url = get_whatsapp_media_url(media_id)
-            
+
             if media_type == "image":
                 # Flujo de Imagen: Descargar y preparar para Gemini
                 log.debug("📸 Procesando imagen para Gemini Vision...")
                 if media_url:
                     image_bytes = download_and_optimize_image(media_url)
                     if image_bytes:
-                        # Instrucción de análisis visual (SIEMPRE se agrega, haya texto o no)
-                        analysis_instruction = (
-                            "\n\n[INSTRUCCIÓN DE VISIÓN CRÍTICA]: La imagen adjunta es lo que el cliente quiere VERIFICAR. "
-                            "1. Analiza el ESTAMPADO (Tribal, Hojas, etc). "
-                            "2. Busca en tu SYSTEM PROMPT (Catálogo) el producto que tenga ese estampado y color EXACTO. "
-                            "3. EXTRAE EL ID (retailer_id) de ese producto. (Ej: '12345'). "
-                            "4. EJECUTA 'recommend_products' usando EL ID como término de búsqueda. "
-                            "5. Si no encuentras el ID exacto, usa el nombre detallado."
+                        # [CRÍTICO] Adjuntar imagen para que Gemini la vea (había sido borrado)
+                        gemini_contents.append(
+                            types.Part.from_bytes(
+                                data=image_bytes, mime_type="image/jpeg"
+                            )
                         )
-                        
+
+                        # 0. BÚSQUEDA VISUAL EXACTA (pHash)
+                        detected_product_id = None
+                        if imagehash:
+                            try:
+                                user_img = Image.open(io.BytesIO(image_bytes))
+                                user_hash = imagehash.phash(user_img)
+
+                                products_dict = cache.get(
+                                    f"catalog_products_{settings.CATALOG_ID}"
+                                )
+                                if products_dict:
+                                    best_dist = 100
+
+                                    for pid, prod in products_dict.items():
+                                        if prod.get("phash"):
+                                            cat_hash = imagehash.hex_to_hash(
+                                                prod["phash"]
+                                            )
+                                            dist = user_hash - cat_hash
+                                            if dist < best_dist:
+                                                best_dist = dist
+                                                if (
+                                                    dist < 15
+                                                ):  # Umbral de similitud (Menor es mas igual)
+                                                    detected_product_id = pid
+
+                                    if detected_product_id:
+                                        log.info(
+                                            f"🎯 MATCH VISUAL DETECTADO: {detected_product_id} (Dist: {best_dist})"
+                                        )
+
+                            except Exception as e:
+                                log.error(f"Error en hashing visual: {e}")
+
+                        # 1. Definir Prompt
+                        if detected_product_id:
+                            # Si pHash encontró match, FORZAMOS ese ID.
+                            analysis_instruction = (
+                                f"\n\n[SISTEMA DE VISIÓN]: He identificado matemáticamente que este producto es el ID: {detected_product_id}. "
+                                "NO analices la imagen. NO preguntes. "
+                                f"EJECUTA 'recommend_products' inmediatamente con el término '{detected_product_id}' para mostrarlo."
+                            )
+                        else:
+                            # Prompt de respaldo (IA analiza)
+                            analysis_instruction = (
+                                "\n\n[INSTRUCCIÓN DE VISIÓN CRÍTICA]: La imagen adjunta es lo que el cliente quiere VERIFICAR. "
+                                "1. Analiza el ESTAMPADO (Tribal, Hojas, etc). "
+                                "2. Busca en tu SYSTEM PROMPT (Catálogo) el producto que tenga ese estampado y color EXACTO. "
+                                "3. EXTRAE EL ID (retailer_id) de ese producto. (Ej: '12345'). "
+                                "4. EJECUTA 'recommend_products' usando EL ID como término de búsqueda. "
+                                "5. Si no encuentras el ID exacto, usa el nombre detallado.\n"
+                                "⚠️ REGLA DE ORO: NO PREGUNTES '¿Qué prenda es?'. NO PIDAS CONFIRMACIÓN. "
+                                "Simplemente asume que tu identificación es correcta y EJECUTA la herramienta. "
+                                "El cliente quiere ver productos, no chatear sobre qué ve."
+                            )
+
                         if text_body:
                             text_body += analysis_instruction
                         else:
                             text_body = analysis_instruction.strip()
-                            
+
             elif media_type == "audio":
                 # Flujo de Audio: Oído sónico
                 log.debug("🎙️ Procesando audio para Gemini...")
@@ -1081,11 +1136,13 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id, media_id=
                     audio_bytes = download_audio(media_url)
                     if audio_bytes:
                         gemini_contents.append(
-                            types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")
+                            types.Part.from_bytes(
+                                data=audio_bytes, mime_type="audio/ogg"
+                            )
                         )
                         if not text_body:
-                            text_body = "Escucha el audio, identifica qué busca el cliente y EJECUTA 'recommend_products' o la función necesaria. NO pidas confirmación, actúa." # Prompt implícito para audio
-        
+                            text_body = "Escucha el audio, identifica qué busca el cliente y EJECUTA 'recommend_products' o la función necesaria. NO pidas confirmación, actúa."  # Prompt implícito para audio
+
         # Agregar el texto (ya sea del usuario o el implícito)
         gemini_contents.append(text_body)
 
@@ -1266,7 +1323,9 @@ def whatsapp_webhook(request):
                                 for message_event in value.get("messages", []):
                                     message_type = message_event.get("type")
                                     sender_id = message_event["from"]
-                                    wamid = message_event.get("id") # Define wamid here for all message types
+                                    wamid = message_event.get(
+                                        "id"
+                                    )  # Define wamid here for all message types
                                     log.debug(
                                         f"RECUPERANDO EL NOMBRE DEL CLIENTE {get_user_name(sender_id)}"
                                     )
@@ -1332,7 +1391,7 @@ def whatsapp_webhook(request):
                                                 message_event.get("timestamp"),
                                                 wamid,  # message_id
                                                 image_id,  # media_id
-                                                "image" # media_type
+                                                "image",  # media_type
                                             ),
                                         ).start()
 
@@ -1349,7 +1408,7 @@ def whatsapp_webhook(request):
                                         )
                                         audio = message_event.get("audio")
                                         audio_id = audio.get("id")
-                                        
+
                                         # Guardar mensaje de audio (placeholder)
                                         try:
                                             Message.objects.create(
@@ -1364,16 +1423,16 @@ def whatsapp_webhook(request):
                                             pass
 
                                         log.debug("🎙️ AUDIO DETECTADO")
-                                        
+
                                         threading.Thread(
                                             target=process_gemini_message,
                                             args=(
                                                 sender_id,
-                                                "", # Texto vacío
+                                                "",  # Texto vacío
                                                 message_event.get("timestamp"),
                                                 wamid,
                                                 audio_id,
-                                                "audio"
+                                                "audio",
                                             ),
                                         ).start()
 
