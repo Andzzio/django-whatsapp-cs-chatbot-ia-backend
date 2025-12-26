@@ -59,7 +59,10 @@ def sync_catalog_products(catalog_id):
     headers = {
         "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
     }
-    params = {"fields": "id,name,description,price,retailer_id,image_url", "limit": 100}
+    params = {
+        "fields": "id,name,description,price,sale_price,retailer_id,image_url",
+        "limit": 100,
+    }
 
     products_dict = {}
 
@@ -76,6 +79,7 @@ def sync_catalog_products(catalog_id):
                     products_dict[retailer_id] = {
                         "name": product.get("name", "Sin nombre"),
                         "price": product.get("price", 0),
+                        "sale_price": product.get("sale_price"),
                         "description": product.get("description", ""),
                         "retailer_id": retailer_id,
                         "image_url": product.get("image_url", ""),
@@ -129,7 +133,7 @@ def get_context(phone_number):
     cache_key = f"Client_{phone_number}"
     client_data = cache.get(cache_key)
     if client_data and client_data.get("context"):
-        return f"CONTEXTO: {client_data['context']}\n PREGUNTA:"
+        return client_data["context"]
     else:
         return ""
 
@@ -690,12 +694,17 @@ def get_catalog_context(catalog_id):
 
             name = product.get("name", "Producto")
             price = product.get("price", "Consultar")
+            sale_price = product.get("sale_price")
             description = product.get("description", "")[
                 :100
             ]  # Recortar descripción larga
 
             catalog_text += f"- {name} (ID: {retailer_id})\n"
-            catalog_text += f"  Precio: {price}\n"
+            if sale_price:
+                catalog_text += f"  Precio Oferta: {sale_price} (Antes: {price})\n"
+            else:
+                catalog_text += f"  Precio: {price})\n"
+
             if description:
                 catalog_text += f"  Info: {description}...\n"
             count += 1
@@ -755,8 +764,14 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id):
         max_reintentos = 4
 
         # Obtener contexto del catálogo
+        # Obtener contexto del catálogo
         catalog_context = get_catalog_context(settings.CATALOG_ID)
-        full_prompt = f"{catalog_context}\n\n{get_context(sender_id)}{text_body}"
+
+        full_prompt = (
+            f"INFORMACIÓN DEL CATÁLOGO:\n{catalog_context}\n\n"
+            f"HISTORIAL DE CONVERSACIÓN (MEMORIA):\n{get_context(sender_id)}\n\n"
+            f"MENSAJE ACTUAL DEL CLIENTE:\n{text_body}"
+        )
 
         for intento in range(max_reintentos):
             try:
