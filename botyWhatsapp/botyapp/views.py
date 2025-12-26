@@ -14,6 +14,8 @@ import random
 import threading
 from .models import Contact, Message
 from django.db import IntegrityError
+from PIL import Image
+import io
 
 
 # COMENTARIO PARA HACER UN TEST COMMIT
@@ -21,6 +23,52 @@ from django.db import IntegrityError
 IA_KEY = settings.IA_TOKEN
 
 client = genai.Client(api_key=IA_KEY)
+
+# Diccionario global para gestionar timers de re-enganche
+user_timers = {}
+
+
+def cancel_timer(sender_id):
+    """Cancela cualquier timer activo para este usuario"""
+    if sender_id in user_timers:
+        try:
+            user_timers[sender_id].cancel()
+            del user_timers[sender_id]
+            log.debug(f"⏱️ Timer cancelado para {sender_id}")
+        except Exception as e:
+            log.error(f"Error cancelando timer: {e}")
+
+
+def send_reengagement_message(sender_id):
+    """Envía un mensaje de recuperación si el usuario está inactivo"""
+    try:
+        # Verificar si el último mensaje fue hace más de 5 min (doble check opcional)
+        # Por simplicidad, enviamos el mensaje directo
+        log.debug(f"⏰ Ejecutando re-enganche para {sender_id}")
+
+        message = (
+            "¿Sigues ahí? 👀\n\n"
+            "No quería que te perdieras estos modelos que están volando. 🚀\n"
+            "Si tienes alguna duda sobre tallas o precios, ¡estoy aquí para ayudarte! 💖"
+        )
+        send_whatsapp_message(sender_id, message)
+
+        # Limpiar timer del diccionario
+        if sender_id in user_timers:
+            del user_timers[sender_id]
+
+    except Exception as e:
+        log.error(f"Error en re-enganche: {e}")
+
+
+def start_timer(sender_id):
+    """Inicia un nuevo timer de 5 minutos"""
+    cancel_timer(sender_id)
+    # 300 segundos = 5 minutos
+    timer = threading.Timer(300, send_reengagement_message, [sender_id])
+    user_timers[sender_id] = timer
+    timer.start()
+    log.debug(f"⏱️ Nuevo timer iniciado para {sender_id} (5 min)")
 
 
 def health_check(request):
@@ -45,6 +93,20 @@ def button_tool():
                 description="Ejecutarás esta función y no devolverás una respuesta textual cuando el usuario solicite hablar con el dueño, una persona real, agente, gerente, encargado, agente especializado, Nunca pasarás números inventados ni contactos inventados.",
                 parameters=types.Schema(
                     type=types.Type.OBJECT, properties={}, required=[]
+                ),
+            ),
+            types.FunctionDeclaration(
+                name="recommend_products",
+                description="Usa esta función cuando el usuario busque un tipo de producto específico (ej: 'pantalones', 'vestidos', 'ofertas'). Filtra y muestra productos relevantes con imagen.",
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "search_term": types.Schema(
+                            type=types.Type.STRING,
+                            description="Término de búsqueda o categoría (ej: 'pantalón', 'falda', 'azul')",
+                        )
+                    },
+                    required=["search_term"],
                 ),
             ),
         ]
@@ -133,7 +195,8 @@ def get_context(phone_number):
     cache_key = f"Client_{phone_number}"
     client_data = cache.get(cache_key)
     if client_data and client_data.get("context"):
-        return client_data["context"]
+        # Limpiar prefijo antiguo si existe en caché
+        return client_data["context"].replace("CONTEXTO:", "").strip()
     else:
         return ""
 
@@ -715,9 +778,102 @@ def get_catalog_context(catalog_id):
         return ""
 
 
-def process_gemini_message(sender_id, raw_text, timestamp, message_id):
+def search_and_send_products(sender_id, search_term):
+    """Filtra productos y envía una lista nativa de WhatsApp"""
     try:
-        log.debug(f"🧵 Procesando mensaje en background para: {sender_id}")
+        products_dict = cache.get(f"catalog_products_{settings.CATALOG_ID}")
+        if not products_dict:
+            products_dict = sync_catalog_products(settings.CATALOG_ID)
+
+        matches = []
+        term = search_term.lower()
+
+        for pid, prod in products_dict.items():
+            name = prod.get("name", "").lower()
+            desc = prod.get("description", "").lower()
+            if term in name or term in desc:
+                matches.append(prod)
+
+        if not matches:
+            send_whatsapp_message(
+                sender_id,
+                f"Mmm, no encontré exactamente '{search_term}', pero aquí tienes todo nuestro catálogo para que explores. 👇",
+            )
+            send_catalog_message(sender_id)
+            return
+
+        # Limitar a 10 productos para la lista section
+        matches = matches[:10]
+
+        product_items = []
+        for prod in matches:
+            product_items.append({"product_retailer_id": prod["retailer_id"]})
+
+        sections = [
+            {"title": f"Resultados: {search_term[:20]}", "product_items": product_items}
+        ]
+
+        send_product_list_message(
+            sender_id,
+            settings.CATALOG_ID,
+            sections,
+            header_text=f"Lo mejor en {search_term}",
+            body_text="¡Mira estos modelos que seleccioné para ti! 😍",
+        )
+        log.debug(f"✅ Productos recomendados enviados a {sender_id}")
+
+    except Exception as e:
+        log.error(f"Error recomendando productos: {e}")
+        send_catalog_message(sender_id)  # Fallback
+
+
+def get_whatsapp_media_url(media_id):
+    """Obtiene la URL de descarga de un archivo multimedia de WhatsApp"""
+    url = f"https://graph.facebook.com/v21.0/{media_id}"
+    headers = {"Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}"}
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json().get("url")
+    except Exception as e:
+        log.error(f"Error obteniendo URL de media: {e}")
+        return None
+
+
+def download_and_optimize_image(url):
+    """Descarga y optimiza la imagen para Gemini"""
+    headers = {"Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}"}
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+
+        # Procesar con PIL
+        image = Image.open(io.BytesIO(response.content))
+
+        # Redimensionar si es muy grande (ej: > 1024px)
+        max_size = (1024, 1024)
+        image.thumbnail(max_size)
+
+        # Convertir a JPEG optimizado
+        buffer = io.BytesIO()
+        if image.mode in ("RGBA", "P"):
+            image = image.convert("RGB")
+        image.save(buffer, format="JPEG", quality=85)
+        return buffer.getvalue()
+    except Exception as e:
+        log.error(f"Error descargando imagen: {e}")
+        return None
+
+
+def process_gemini_message(sender_id, raw_text, timestamp, message_id, media_id=None):
+    try:
+        log.debug(
+            f"🧵 Procesando mensaje en background para: {sender_id} (Media: {media_id})"
+        )
+
+        # 1. Cancelar timer anterior al recibir mensaje nuevo
+        cancel_timer(sender_id)
+
         try:
             contact_obj = Contact.objects.get(phone=sender_id)
         except Contact.DoesNotExist:
@@ -763,23 +919,42 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id):
         text_body = raw_text.lower().strip()
         max_reintentos = 4
 
-        # Obtener contexto del catálogo
+        gemini_contents = []
+
+        if media_id:
+            # Flujo de Imagen: Descargar y preparar para Gemini
+            log.debug("📸 Procesando imagen para Gemini Vision...")
+            media_url = get_whatsapp_media_url(media_id)
+            if media_url:
+                image_bytes = download_and_optimize_image(media_url)
+                if image_bytes:
+                    gemini_contents.append(
+                        types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+                    )
+                    # Si no hay texto, agregamos un prompt implícito para búsqueda
+                    if not text_body:
+                        text_body = "Analiza esta imagen, describe la prenda detalladamente y busca algo similar en el catálogo."
+
+        # Agregar el texto (ya sea del usuario o el implícito)
+        gemini_contents.append(text_body)
+
         # Obtener contexto del catálogo
         catalog_context = get_catalog_context(settings.CATALOG_ID)
 
-        full_prompt = (
-            f"INFORMACIÓN DEL CATÁLOGO:\n{catalog_context}\n\n"
-            f"HISTORIAL DE CONVERSACIÓN (MEMORIA):\n{get_context(sender_id)}\n\n"
-            f"MENSAJE ACTUAL DEL CLIENTE:\n{text_body}"
+        # Construir Instrucción del Sistema Dinámica
+        dynamic_system_instruction = (
+            f"{settings.SYSTEM_PROMPT}\n\n"
+            f"--- CONOCIMIENTO DEL NEGOCIO ---\n{catalog_context}\n\n"
+            f"--- HISTORIAL DE CONVERSACIÓN ---\n{get_context(sender_id)}"
         )
 
         for intento in range(max_reintentos):
             try:
                 response = client.models.generate_content(
                     model="models/gemini-flash-lite-latest",
-                    contents=full_prompt,
+                    contents=gemini_contents,  # Lista con texto e imagen (si hay)
                     config={
-                        "system_instruction": settings.SYSTEM_PROMPT,
+                        "system_instruction": dynamic_system_instruction,
                         "tools": [button_tool()],
                     },
                 )
@@ -847,6 +1022,13 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id):
                             "¡Aquí está nuestro catálogo completo! 🛍️✨ Explora todos nuestros productos.",
                         )
                         break
+                    elif function_name == "recommend_products":
+                        log.debug("✅ RECOMENDANDO PRODUCTOS")
+                        # Obtener argumentos
+                        args = part.function_call.args
+                        term = args.get("search_term", "ropa")
+                        search_and_send_products(sender_id, term)
+                        break
                     elif function_name == "show_contact":
                         log.debug("✅ ACCEDIENDO AL CONTACTO")
                         send_whatsapp_message(
@@ -864,7 +1046,9 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id):
             if not has_function_call:
                 log.debug("✅ TEXTO GENERADO")
                 if response.text:
-                    send_whatsapp_message(sender_id, response.text)
+                    # Limpieza de respuesta: eliminar alucinación de contexto
+                    final_text = response.text.replace("CONTEXTO:", "").strip()
+                    send_whatsapp_message(sender_id, final_text)
 
                     # Actualizar memoria (Contexto)
                     try:
@@ -873,7 +1057,6 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id):
                         current_context = client_data.get("context", "")
 
                         # Limitar historial para no exceder tokens (aprox últimos 10 mensajes)
-                        # Si es muy largo, cortamos el inicio
                         if len(current_context) > 2000:
                             current_context = current_context[-2000:]
 
@@ -884,6 +1067,9 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id):
                         log.debug(f"🧠 Memoria actualizada para {sender_id}")
                     except Exception as e:
                         log.error(f"⚠️ Error actualizando memoria: {e}")
+
+        # 2. Iniciar nuevo timer al terminar de responder (fuera del bloque de texto/función)
+        start_timer(sender_id)
     except Exception as e:
         log.error(f"❌ Error fatal en hilo de procesamiento: {e}")
 
@@ -986,14 +1172,24 @@ def whatsapp_webhook(request):
                                                     status=200,
                                                 )
                                         log.debug("🌄 IMAGEN DETECTADA")
-                                        save_user_data(
-                                            phone_number=sender_id, image_id=image_id
+                                        threading.Thread(
+                                            target=process_gemini_message,
+                                            args=(
+                                                sender_id,
+                                                "",  # Texto vacío inicial
+                                                message_event.get("timestamp"),
+                                                wamid,  # message_id
+                                                image_id,  # media_id
+                                            ),
+                                        ).start()
+
+                                        # Responder al usuario que estamos pensando
+                                        # (Opcional, a veces es mejor responder directo cuando termine)
+                                        send_whatsapp_message(
+                                            sender_id,
+                                            "🔎 *Déjame ver esa foto... buscadando en el closet...* 🧐",
                                         )
-                                        mess = "Hola linda ✨, te gustaría que te pase el catálogo para que hagas la compra desde ahí o quieres que te pase con uno de nuestros agentes especializados? 😌"
-                                        save_user_data(
-                                            phone_number=sender_id, context=mess
-                                        )
-                                        send_button_catalog_agent(sender_id, mess)
+
                                     elif message_type == "interactive":
                                         contact_obj = Contact.objects.get(
                                             phone=sender_id
