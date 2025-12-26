@@ -16,6 +16,7 @@ from .models import Contact, Message
 from django.db import IntegrityError
 from PIL import Image
 import io
+import difflib # ✨ Fuzzy Matching para búsqueda certera
 
 
 # COMENTARIO PARA HACER UN TEST COMMIT
@@ -758,18 +759,20 @@ def get_catalog_context(catalog_id):
             name = product.get("name", "Producto")
             price = product.get("price", "Consultar")
             sale_price = product.get("sale_price")
-            description = product.get("description", "")[
-                :100
-            ]  # Recortar descripción larga
+            # [MEJORA] No recortar la descripción para permitir búsqueda semántica profunda
+            description = product.get("description", "") 
+            category = product.get("category", "")
 
             catalog_text += f"- {name} (ID: {retailer_id})\n"
+            if category:
+                catalog_text += f"  Categoría: {category}\n"
             if sale_price:
                 catalog_text += f"  Precio Oferta: {sale_price} (Antes: {price})\n"
             else:
-                catalog_text += f"  Precio: {price})\n"
-
+                catalog_text += f"  Precio: {price}\n"
             if description:
-                catalog_text += f"  Info: {description}...\n"
+                catalog_text += f"  Detalles: {description}\n"
+
             count += 1
 
         return catalog_text
@@ -779,54 +782,62 @@ def get_catalog_context(catalog_id):
 
 
 def search_and_send_products(sender_id, search_term):
-    """Filtra productos y envía resultados priorizando la relevancia y UX visual"""
+    """
+    Filtra productos usando DIFUSIÓN (Fuzzy Matching) para máxima precisión.
+    Ya no se basa en puntos simples, sino en la similitud de la frase completa.
+    """
     try:
         products_dict = cache.get(f"catalog_products_{settings.CATALOG_ID}")
         if not products_dict:
             products_dict = sync_catalog_products(settings.CATALOG_ID)
             
         scored_products = []
-        tokens = search_term.lower().split()
+        term_clean = search_term.lower().strip()
+        tokens = term_clean.split()
         
-        # Algoritmo de Ranking por Relevancia
+        # 1. Filtro Candidatos: Seleccionar solo productos que tengan AL MENOS UNA coincidencia
+        candidates = []
         for pid, prod in products_dict.items():
-            score = 0
             name = prod.get("name", "").lower()
-            desc = prod.get("description", "").lower()
-            
-            # Coincidencia exacta de frase (Premio Mayor)
-            if search_term.lower() in name:
-                score += 50
-            
-            # Coincidencia de palabras clave
-            for token in tokens:
-                if token in name:
-                    score += 10 # Nombre vale más
-                if token in desc:
-                    score += 3  # Descripción ayuda
-            
-            if score > 0:
-                scored_products.append((score, prod))
+            if any(token in name for token in tokens):
+                candidates.append(prod)
                 
+        # 2. Ranking Difuso (Fuzzy): Comparar similitud entre 'Search Term' y 'Nombre Producto'
+        for prod in candidates:
+            name = prod.get("name", "").lower()
+            # SequenceMatcher calcula qué tanto se parecen las frases (0.0 a 1.0)
+            # Esto penaliza si el producto tiene palabras que NO están en la búsqueda (ej: 'Hojas' vs 'Tribal')
+            similarity = difflib.SequenceMatcher(None, term_clean, name).ratio()
+            
+            # Bonus por contención exacta: Si la palabra clave rara (ej: Tribal) está, subir score.
+            # Pero difflib ya maneja esto bastante bien.
+            
+            scored_products.append((similarity, prod))
+            
         if not scored_products:
+            # Fallback a búsqueda laxa si no hay nada
             send_whatsapp_message(sender_id, f"Mmm, busqué '{search_term}' pero no vi nada exacto. 🤔 ¡Pero mira todo lo que tenemos! 👇")
             send_catalog_message(sender_id)
             return
 
-        # Ordenar por puntaje (Mayor a menor)
+        # Ordenar por similitud (Mayor a menor)
         scored_products.sort(key=lambda x: x[0], reverse=True)
+        
+        # Filtrar basura: Si la similitud es muy baja (< 0.2), quizás no deberíamos mandarlo como 'match exacto'.
+        # Pero mejor mandamos el mejor que tengamos.
+        
         matches = [p[1] for p in scored_products]
         
-        # 1. Enviar el GANADOR como Tarjeta Única (Botón directo de compra)
+        # 1. Enviar el GANADOR
         top_match = matches[0]
         send_product_message(
             sender_id, 
             settings.CATALOG_ID, 
             top_match["retailer_id"],
-            body_text=f"¡Encontré esto! 😍 Creo que es justo lo que buscas."
+            body_text=f"¡Lo encontré! 😍 Es el {top_match['name']}."
         )
         
-        # 2. Si hay más alternativas (máx 9 más), enviarlas en lista
+        # 2. Lista de alternativas
         remaining_matches = matches[1:10]
         if remaining_matches:
             product_items = []
@@ -837,7 +848,7 @@ def search_and_send_products(sender_id, search_term):
                 
             sections = [
                 {
-                    "title": "Otras opciones similares",
+                    "title": "Otras opciones",
                     "product_items": product_items
                 }
             ]
@@ -846,11 +857,11 @@ def search_and_send_products(sender_id, search_term):
                 sender_id, 
                 settings.CATALOG_ID, 
                 sections, 
-                header_text=f"Más coincidencias", 
-                body_text="Aquí hay otros modelos que te podrían gustar. �"
+                header_text=f"Más opciones similares", 
+                body_text="Aquí tienes otros modelos parecidos. 👇"
             )
             
-        log.debug(f"✅ Productos enviados a {sender_id} (Top: {top_match['name']})")
+        log.debug(f"✅ Productos enviados a {sender_id} (Top: {top_match['name']} - Score: {scored_products[0][0]:.2f})")
         
     except Exception as e:
         log.error(f"Error recomendando productos: {e}")
@@ -1036,10 +1047,10 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id, media_id=
                     if image_bytes:
                         # Instrucción de análisis visual (SIEMPRE se agrega, haya texto o no)
                         analysis_instruction = (
-                            "\n\n[INSTRUCCIÓN DE VISIÓN]: La imagen adjunta es lo que el cliente quiere. "
-                            "Analiza el ESTAMPADO, COLOR y CORTE. "
-                            "Busca en tu catálogo el nombre EXACTO que coincida y EJECUTA 'recommend_products'. "
-                            "Si el cliente hizo una pregunta, respóndela basándote en ese producto identificado."
+                            "\n\n[INSTRUCCIÓN DE VISIÓN CRÍTICA]: La imagen adjunta es lo que el cliente quiere VERIFICAR. "
+                            "Analiza el ESTAMPADO (Keywords: Tribal, Hojas, Floral, Liso, etc). "
+                            "NO uses nombres genéricos. Busca en tu SYSTEM PROMPT (Catálogo) el producto que tenga ese estampado y color EXACTO. "
+                            "EJECUTA 'recommend_products' con el 'NOMBRE DEL ESTAMPADO' identificado (ej: 'Palazzo Tribal')."
                         )
                         
                         if text_body:
