@@ -791,6 +791,20 @@ def search_and_send_products(sender_id, search_term):
         if not products_dict:
             products_dict = sync_catalog_products(settings.CATALOG_ID)
             
+        # 0. Búsqueda Determinista por ID (Vía de Alta Velocidad)
+        # Si la IA nos pasa un ID exacto, no perdemos tiempo adivinando.
+        term_clean = search_term.strip()
+        if term_clean in products_dict:
+            log.debug(f"🎯 Match Exacto por ID detectado: {term_clean}")
+            top_match = products_dict[term_clean]
+            send_product_message(
+                sender_id, 
+                settings.CATALOG_ID, 
+                top_match["retailer_id"],
+                body_text=f"¡Aquí está! Tal como lo pediste. 😎"
+            )
+            return
+
         scored_products = []
         term_clean = search_term.lower().strip()
         tokens = term_clean.split()
@@ -1048,9 +1062,11 @@ def process_gemini_message(sender_id, raw_text, timestamp, message_id, media_id=
                         # Instrucción de análisis visual (SIEMPRE se agrega, haya texto o no)
                         analysis_instruction = (
                             "\n\n[INSTRUCCIÓN DE VISIÓN CRÍTICA]: La imagen adjunta es lo que el cliente quiere VERIFICAR. "
-                            "Analiza el ESTAMPADO (Keywords: Tribal, Hojas, Floral, Liso, etc). "
-                            "NO uses nombres genéricos. Busca en tu SYSTEM PROMPT (Catálogo) el producto que tenga ese estampado y color EXACTO. "
-                            "EJECUTA 'recommend_products' con el 'NOMBRE DEL ESTAMPADO' identificado (ej: 'Palazzo Tribal')."
+                            "1. Analiza el ESTAMPADO (Tribal, Hojas, etc). "
+                            "2. Busca en tu SYSTEM PROMPT (Catálogo) el producto que tenga ese estampado y color EXACTO. "
+                            "3. EXTRAE EL ID (retailer_id) de ese producto. (Ej: '12345'). "
+                            "4. EJECUTA 'recommend_products' usando EL ID como término de búsqueda. "
+                            "5. Si no encuentras el ID exacto, usa el nombre detallado."
                         )
                         
                         if text_body:
