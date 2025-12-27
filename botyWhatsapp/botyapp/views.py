@@ -445,9 +445,14 @@ def process_order(order_data, sender_id):
             order_summary += f"   💵 Precio unitario: {currency} {item_price:.2f}\n"
             order_summary += f"   💰 Subtotal: {currency} {subtotal:.2f}\n\n"
 
+        shipping_cost = 10.0
+        total_with_shipping = total_price + shipping_cost
+
         order_summary += f"{'─' * 30}\n"
         order_summary += f"📊 *Total de productos:* {total_items}\n"
-        order_summary += f"💰 *TOTAL A PAGAR:* {currency} {total_price:.2f}\n"
+        order_summary += f"📦 *Subtotal:* {currency} {total_price:.2f}\n"
+        order_summary += f"🚚 *Envío:* {currency} {shipping_cost:.2f}\n"
+        order_summary += f"💰 *TOTAL FINAL:* {currency} {total_with_shipping:.2f}\n"
 
         if text:
             order_summary += f"\n💬 *Tu nota:* _{text}_"
