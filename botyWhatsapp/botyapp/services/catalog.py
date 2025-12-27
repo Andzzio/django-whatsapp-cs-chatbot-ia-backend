@@ -7,7 +7,6 @@ from django.core.cache import cache
 from logger import log
 from .whatsapp import (
     send_product_message,
-    send_whatsapp_message,
     send_catalog_message,
     send_product_list_message,
 )
@@ -200,7 +199,10 @@ def get_catalog_context(catalog_id):
 
 def search_and_send_products(sender_id, search_term):
     """
-    Filtra productos usando DIFUSIÓN (Fuzzy Matching) para máxima precisión.
+    Filtra productos y decide la mejor UI:
+    - Varios resultados -> LISTA Interactiva (Native List Message)
+    - Un resultado -> Tarjeta de Producto (Single Product Card)
+    - Ninguno -> Botón de Catálogo
     """
     try:
         products_dict = cache.get(f"catalog_products_{settings.CATALOG_ID}")
@@ -216,7 +218,7 @@ def search_and_send_products(sender_id, search_term):
                 sender_id,
                 settings.CATALOG_ID,
                 top_match["retailer_id"],
-                body_text="¡Aquí está! Tal como lo pediste. 😎",
+                body_text="Aquí tienes.",
             )
             return
 
@@ -231,7 +233,7 @@ def search_and_send_products(sender_id, search_term):
             if any(token in name for token in tokens):
                 candidates.append(prod)
 
-        # Si el filtro estricto falló (ej: 'maxipalazos' vs 'Maxi Palazo'), usamos TODOS
+        # Si el filtro estricto falló, usamos TODOS para intentar fuzzy
         if not candidates:
             candidates = list(products_dict.values())
 
@@ -240,55 +242,54 @@ def search_and_send_products(sender_id, search_term):
             name = prod.get("name", "").lower()
             similarity = difflib.SequenceMatcher(None, term_clean, name).ratio()
 
-            # Solo agregar si tiene una similitud mínima decente (ej: > 0.3)
-            # Esto evita mostrar "Zapatos" cuando buscan "Blusa" solo porque estaba en la lista 'ALL'
+            # Umbral de similitud
             if similarity > 0.3:
                 scored_products.append((similarity, prod))
 
         if not scored_products:
-            # Fallback a búsqueda laxa si no hay nada
-            send_whatsapp_message(
-                sender_id,
-                f"Mmm, busqué '{search_term}' pero no vi nada exacto. 🤔 ¡Pero mira todo lo que tenemos! 👇",
-            )
-            send_catalog_message(sender_id)
+            # Fallback direct a Catálogo (Zero Text)
+            send_catalog_message(sender_id, "No encontré exactos, pero mira todo:")
             return
 
         # Ordenar por similitud (Mayor a menor)
         scored_products.sort(key=lambda x: x[0], reverse=True)
-
         matches = [p[1] for p in scored_products]
 
-        # 1. Enviar el GANADOR
-        top_match = matches[0]
-        send_product_message(
-            sender_id,
-            settings.CATALOG_ID,
-            top_match["retailer_id"],
-            body_text=f"¡Lo encontré! 😍 Es el {top_match['name']}.",
-        )
+        # --- LÓGICA DE UI (LIST vs SINGLE) ---
 
-        # 2. Lista de alternativas
-        remaining_matches = matches[1:10]
-        if remaining_matches:
+        # CASO A: Varios Resultados (LISTA)
+        # WhatsApp permite hasta 10 items por sección. Mostramos el Top 10.
+        if len(matches) > 1:
+            top_matches = matches[:10]
             product_items = []
-            for prod in remaining_matches:
+            for prod in top_matches:
                 product_items.append({"product_retailer_id": prod["retailer_id"]})
 
-            sections = [{"title": "Otras opciones", "product_items": product_items}]
+            sections = [{"title": "Resultados", "product_items": product_items}]
 
+            # Enviamos LISTA NATIVA
             send_product_list_message(
                 sender_id,
                 settings.CATALOG_ID,
                 sections,
-                header_text="Más opciones similares",
-                body_text="Aquí tienes otros modelos parecidos. 👇",
+                header_text=f"Resultados: {search_term}",
+                body_text="Selecciona para ver detalles 👇",
             )
+            log.debug(f"✅ Lista enviada con {len(top_matches)} productos.")
+            return
 
-        log.debug(
-            f"✅ Productos enviados a {sender_id} (Top: {top_match['name']} - Score: {scored_products[0][0]:.2f})"
-        )
+        # CASO B: Un solo Resultado (SINGLE CARD)
+        if len(matches) == 1:
+            top_match = matches[0]
+            send_product_message(
+                sender_id,
+                settings.CATALOG_ID,
+                top_match["retailer_id"],
+                body_text="Aquí tienes.",
+            )
+            log.debug(f"✅ Producto único enviado: {top_match['name']}")
+            return
 
     except Exception as e:
         log.error(f"Error recomendando productos: {e}")
-        send_catalog_message(sender_id)  # Fallback
+        send_catalog_message(sender_id)  # Fallback final

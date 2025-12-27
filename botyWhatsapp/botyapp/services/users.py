@@ -39,7 +39,21 @@ def get_context(phone_number):
         ctx = client_data.get("context")
         # Si es una lista (nuevo formato), la devolvemos
         if isinstance(ctx, list):
-            return ctx
+            # Sanitize: Remove any text parts that start with [SISTEMA: to prevent leakage
+            clean_history = []
+            for turn in ctx:
+                if "parts" in turn:
+                    clean_parts = []
+                    for part in turn["parts"]:
+                        # Ensure part is a dict and has text
+                        if isinstance(part, dict) and "text" in part:
+                            if not part["text"].startswith("[SISTEMA:"):
+                                clean_parts.append(part)
+                        else:
+                            clean_parts.append(part)
+                    turn["parts"] = clean_parts
+                    clean_history.append(turn)
+            return clean_history
         # Si es string (formato antiguo) o predeterminado, devolvemos lista vacía para resetear
         return []
     else:
