@@ -35,11 +35,15 @@ def save_user_data(phone_number, client_name=None, context=None, image_id=None):
 def get_context(phone_number):
     cache_key = f"Client_{phone_number}"
     client_data = cache.get(cache_key)
-    if client_data and client_data.get("context"):
-        # Limpiar prefijo antiguo si existe en caché
-        return client_data["context"].replace("CONTEXTO:", "").strip()
+    if client_data:
+        ctx = client_data.get("context")
+        # Si es una lista (nuevo formato), la devolvemos
+        if isinstance(ctx, list):
+            return ctx
+        # Si es string (formato antiguo) o predeterminado, devolvemos lista vacía para resetear
+        return []
     else:
-        return ""
+        return []
 
 
 def get_image_id(phone_number):

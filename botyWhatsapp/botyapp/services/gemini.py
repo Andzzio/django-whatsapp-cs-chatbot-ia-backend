@@ -1,8 +1,7 @@
 import time
-import random
-import io
 from datetime import datetime
-from PIL import Image
+# from PIL import Image (Removed)
+
 from google import genai
 from google.genai import types
 from django.conf import settings
@@ -13,7 +12,6 @@ from .whatsapp import (
     send_whatsapp_message,
     send_catalog_message,
     send_contact_message,
-    send_image,
     mark_whatsapp_read,
     download_audio,
     download_and_optimize_image,
@@ -22,25 +20,12 @@ from .whatsapp import (
 from .users import (
     get_context,
     save_user_data,
-    get_image_id,
     start_timer,
     cancel_timer,
-    get_user_name,
 )
-from .catalog import get_catalog_context, search_and_send_products, catalog_descriptors
+from .catalog import get_catalog_context, search_and_send_products
 
-# Imports opcionales para Visión
-try:
-    import cv2
-    import numpy as np
-except ImportError:
-    cv2 = None
-    np = None
-
-try:
-    import imagehash
-except ImportError:
-    imagehash = None
+# Visual Search imports removed
 
 IA_KEY = settings.IA_TOKEN
 client = genai.Client(api_key=IA_KEY)
@@ -111,7 +96,6 @@ def process_gemini_message(
                 message_id=message_id,
             )
         except IntegrityError:
-            # Si es una imagen (media_id), es normal que ya esté guardado por el webhook
             if media_id:
                 log.debug(
                     "📸 Mensaje de imagen ya guardado en DB (continuando proceso...)"
@@ -122,7 +106,6 @@ def process_gemini_message(
                 )
                 return
         except Exception as e:
-            # Si falla por integridad (duplicado), abortamos solo si no es imagen
             if (
                 "UNIQUE constraint failed" in str(e)
                 or "unique constraint" in str(e).lower()
@@ -153,192 +136,88 @@ def process_gemini_message(
         text_body = raw_text.lower().strip()
         max_reintentos = 4
 
-        gemini_contents = []
+        # --- CONSTRUCCIÓN DE HISTORIAL ESTRUCTURADO (Structured Chat History) ---
+        # 1. Obtener historial previo (Lista de dicts)
+        history = get_context(sender_id)
+        if not isinstance(history, list):
+            history = []
+
+        # 2. Construir mensaje actual
+        current_message_parts = []
 
         if media_id:
             media_url = get_whatsapp_media_url(media_id)
-
             if media_type == "image":
-                # Flujo de Imagen: Descargar y preparar para Gemini
                 log.debug("📸 Procesando imagen para Gemini Vision...")
                 if media_url:
                     image_bytes = download_and_optimize_image(media_url)
                     if image_bytes:
-                        # 0. BÚSQUEDA VISUAL (Híbrida: pHash + Computer Vision)
-                        detected_product_id = None
-
-                        # A) Intento con Computer Vision (ORB) - El más robusto para patrones/overlays
-                        if cv2 and np and catalog_descriptors:
-                            try:
-                                nparr = np.frombuffer(image_bytes, np.uint8)
-                                user_cv_img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
-                                if user_cv_img is not None:
-                                    orb = cv2.ORB_create(nfeatures=500)
-                                    kp_user, des_user = orb.detectAndCompute(
-                                        user_cv_img, None
-                                    )
-
-                                    if des_user is not None:
-                                        bf = cv2.BFMatcher(
-                                            cv2.NORM_HAMMING, crossCheck=True
-                                        )
-                                        best_matches_count = 0
-
-                                        for (
-                                            cat_id,
-                                            cat_des,
-                                        ) in catalog_descriptors.items():
-                                            matches = bf.match(des_user, cat_des)
-                                            # Ordenar por distancia (mejores primero)
-                                            matches = sorted(
-                                                matches, key=lambda x: x.distance
-                                            )
-                                            # Tomar los top 50 matches
-                                            good_matches = [
-                                                m for m in matches if m.distance < 60
-                                            ]  # Umbral de calidad
-
-                                            if len(good_matches) > best_matches_count:
-                                                best_matches_count = len(good_matches)
-                                                if (
-                                                    best_matches_count > 20
-                                                ):  # Mínimo matches para considerar válido
-                                                    detected_product_id = cat_id
-
-                                        if detected_product_id:
-                                            log.info(
-                                                f"👁️ CV MATCH (ORB): {detected_product_id} con {best_matches_count} coincidencias."
-                                            )
-                            except Exception as e:
-                                log.error(f"Error en CV Match: {e}")
-
-                        # B) Respaldo con pHash (Si CV falló o no está disponible)
-                        if not detected_product_id and imagehash:
-                            try:
-                                user_img = Image.open(io.BytesIO(image_bytes))
-                                user_hash = imagehash.phash(user_img)
-
-                                # Nota: products_dict se usa aquí pero no se importó explícitamente.
-                                # Necesitamos importarlo o obtenerlo via cache.
-                                from django.core.cache import cache
-
-                                products_dict = cache.get(
-                                    f"catalog_products_{settings.CATALOG_ID}"
-                                )
-                                if products_dict:
-                                    best_dist = 100
-                                    for pid, prod in products_dict.items():
-                                        if prod.get("phash"):
-                                            cat_hash = imagehash.hex_to_hash(
-                                                prod["phash"]
-                                            )
-                                            dist = user_hash - cat_hash
-                                            if dist < best_dist:
-                                                best_dist = dist
-                                                if dist < 12:  # Umbral estricto
-                                                    detected_product_id = pid
-                                    if detected_product_id:
-                                        log.info(
-                                            f"🎯 pHash MATCH: {detected_product_id} (Dist: {best_dist})"
-                                        )
-
-                            except Exception as e:
-                                log.error(f"Error en pHash: {e}")
-
-                        # [MODO SEGURO - USUARIO SOLICITA SOLO CATÁLOGO]
-                        if image_bytes:
-                            # 1. Enviar mensaje amigable
-                            send_whatsapp_message(
-                                sender_id,
-                                "¡Me encanta ese estilo! 😍 Mira, aquí tienes nuestro catálogo completo para que encuentres ese modelo y muchos más: 👇",
+                        # Incluimos imagen como parte del contenido
+                        current_message_parts.append(
+                            types.Part.from_bytes(
+                                data=image_bytes, mime_type="image/jpeg"
                             )
-                            # 2. Enviar catálogo
-                            send_catalog_message(sender_id)
-                            # 3. Detener flujo aquí (no pasamos a Gemini)
-                            return
-
+                        )
+                        if not text_body:
+                            text_body = "Describe esta imagen y si es ropa búscala en el catálogo."
             elif media_type == "audio":
-                # Flujo de Audio: Oído sónico
                 log.debug("🎙️ Procesando audio para Gemini...")
                 if media_url:
                     audio_bytes = download_audio(media_url)
                     if audio_bytes:
-                        gemini_contents.append(
+                        current_message_parts.append(
                             types.Part.from_bytes(
                                 data=audio_bytes, mime_type="audio/ogg"
                             )
                         )
                         if not text_body:
-                            text_body = "Escucha el audio, identifica qué busca el cliente y EJECUTA 'recommend_products' o la función necesaria. NO pidas confirmación, actúa."
+                            text_body = "Escucha el audio y atiende al cliente."
 
-        # Agregar el texto (ya sea del usuario o el implícito)
-        gemini_contents.append(text_body)
+        current_message_parts.append({"text": text_body})
 
-        # Obtener contexto del catálogo
+        # Agregamos el mensaje actual al historial temporalmente para la llamada API
+        user_turn = {"role": "user", "parts": current_message_parts}
+        gemini_input_contents = history + [user_turn]
+
+        # Validar tamaño del historial (evitar overflow de contexto/costos)
+        if len(gemini_input_contents) > 20:
+            gemini_input_contents = gemini_input_contents[-20:]
+
+        # Construir Instrucción del Sistema (ESTÁTICA)
         catalog_context = get_catalog_context(settings.CATALOG_ID)
-
-        # Construir Instrucción del Sistema Dinámica
-        dynamic_system_instruction = (
+        system_instruction_text = (
             f"{settings.SYSTEM_PROMPT}\n\n"
-            f"--- CONOCIMIENTO DEL NEGOCIO ---\n{catalog_context}\n\n"
-            f"--- HISTORIAL DE CONVERSACIÓN ---\n{get_context(sender_id)}"
+            "--- DIRECTRICES DE AGENTE PROACTIVO (SCALABLE BEHAVIOR) ---\n"
+            "1. CERO FRICCIÓN: Si el usuario muestra interés en una categoría, NO PREGUNTES si quiere verla. MUESTRA LOS PRODUCTOS INMEDIATAMENTE.\n"
+            "2. INTERPRETACIÓN DE INTENCIÓN: Si el contexto implica que el usuario busca algo, asume la orden y EJECUTA la herramienta adecuada.\n"
+            "3. EVITAR REDUNDANCIA: No pidas confirmación sobre confirmación.\n\n"
+            f"--- CONOCIMIENTO DEL NEGOCIO ---\n{catalog_context}"
         )
 
         for intento in range(max_reintentos):
             try:
                 response = client.models.generate_content(
                     model="models/gemini-flash-lite-latest",
-                    contents=gemini_contents,  # Lista con texto e imagen (si hay)
+                    contents=gemini_input_contents,
                     config={
-                        "system_instruction": dynamic_system_instruction,
+                        "system_instruction": system_instruction_text,
                         "tools": [button_tool()],
                     },
                 )
                 break
             except Exception as e:
                 error_texto = str(e).lower()
-                if "429" in error_texto:
-                    log.warning("⚠️ Error de Límite de Tasa (429) detectado en hilo.")
-                    if intento + 1 == max_reintentos:
-                        log.error("❌ Fallo definitivo por Rate Limit (429).")
-                        send_whatsapp_message(
-                            sender_id,
-                            "😔 Disculpa, estamos recibiendo muchas consultas. Por favor, intenta nuevamente en un momento.",
-                        )
-                        return
-
-                    espera = (4 * (intento + 1)) + random.uniform(0, 2)
-                    log.warning(f"⏳ Esperando {espera:.2f} segundos (Rate Limit)...")
-                    time.sleep(espera)
-                elif "resource_exhausted" in error_texto:
-                    log.warning(
-                        "⚠️ Error de Recurso Agotado (Quota Exceeded) detectado."
-                    )
-                    if intento + 1 == max_reintentos:
-                        log.error("❌ Fallo definitivo por Quota Exceeded.")
-                        send_whatsapp_message(
-                            sender_id,
-                            "😔 El sistema está saturado temporalmente. Intenta más tarde.",
-                        )
-                        return
-
-                    espera = (10 * (intento + 1)) + random.uniform(
-                        0, 5
-                    )  # Espera más larga para quota
-                    log.warning(f"⏳ Esperando {espera:.2f} segundos (Quota)...")
+                if "429" in error_texto or "resource_exhausted" in error_texto:
+                    espera = 2 * (intento + 1)
                     time.sleep(espera)
                 else:
-                    log.error(f"❌ Error inesperado en Gemini: {e}")
-                    send_whatsapp_message(
-                        sender_id,
-                        "😔 Hubo un error interno. Por favor, intenta de nuevo.",
-                    )
+                    log.error(f"Error Gemini: {e}")
                     return
 
         if not response:
-            log.error("❌ La respuesta de Gemini está vacía después de los reintentos.")
             return
 
+        # Procesar Respuesta
         has_function_call = False
         if (
             response.candidates
@@ -349,62 +228,50 @@ def process_gemini_message(
                 if hasattr(part, "function_call") and part.function_call:
                     has_function_call = True
                     function_name = part.function_call.name
-                    log.debug(f"🔧 Function call detectado: {function_name}")
-
+                    log.debug(f"🔧 Function call: {function_name}")
                     if function_name == "show_catalog":
-                        log.debug("✅ ACCEDIENDO AL CATALOGO")
                         send_catalog_message(
-                            sender_id,
-                            "¡Aquí está nuestro catálogo completo! 🛍️✨ Explora todos nuestros productos.",
+                            sender_id, "¡Aquí tienes el catálogo completo!"
                         )
-                        break
                     elif function_name == "recommend_products":
-                        log.debug("✅ RECOMENDANDO PRODUCTOS")
-                        # Obtener argumentos
                         args = part.function_call.args
                         term = args.get("search_term", "ropa")
                         search_and_send_products(sender_id, term)
-                        break
                     elif function_name == "show_contact":
-                        log.debug("✅ ACCEDIENDO AL CONTACTO")
                         send_whatsapp_message(
-                            sender_id,
-                            "¡Con gusto linda!❤️\n\nEntiendo que deseas hablar directamente con nuestro encargado.\nÉl estará encantado de ayudarte con lo que necesites, ya sea una consulta especial o asesoría personalizada.\n\n✨Gracias por confiar en nosotros. Tu estilo merece atención directa\nCon cariño,\nTu equipo de moda femenina 💃",
+                            sender_id, "Claro, aquí tienes el contacto directo:"
                         )
                         send_contact_message(sender_id)
-                        notify = f"*NOTIFICACIÓN DE SOLICITUD DE AYUDA POR CLIENTE*\n- NUMERO DEL CLIENTE: {sender_id}\n- NOMBRE DEL CLIENTE: {get_user_name(sender_id)}"
-                        send_whatsapp_message(settings.OWNER_PHONE_NUMBER, notify)
-                        log.debug(f"MENSAJE ENVIADO EXITOSAMENTE: {notify}")
 
-                        send_image(settings.OWNER_PHONE_NUMBER, get_image_id(sender_id))
-                        log.debug("IMAGEN ENVIADA EXITOSAMENTE")
+            if response.text and not has_function_call:
+                final_text = response.text.replace("CONTEXTO:", "").strip()
+                send_whatsapp_message(sender_id, final_text)
 
-            if not has_function_call:
-                log.debug("✅ TEXTO GENERADO")
+            # --- GUARDAR EN MEMORIA (Structured History) ---
+            try:
+                model_parts = []
                 if response.text:
-                    # Limpieza de respuesta: eliminar alucinación de contexto
-                    final_text = response.text.replace("CONTEXTO:", "").strip()
-                    send_whatsapp_message(sender_id, final_text)
+                    model_parts.append({"text": response.text})
 
-                    # Actualizar memoria (Contexto)
-                    try:
-                        cache_key = f"Client_{sender_id}"
-                        client_data = cache.get(cache_key, {})
-                        current_context = client_data.get("context", "")
+                if has_function_call:
+                    model_parts.append(
+                        {
+                            "text": f"[SISTEMA: Acción {function_name} ejecutada, NO repetir oferta]"
+                        }
+                    )
 
-                        # Limitar historial para no exceder tokens (aprox últimos 10 mensajes)
-                        if len(current_context) > 2000:
-                            current_context = current_context[-2000:]
+                model_turn = {"role": "model", "parts": model_parts}
+                new_history = gemini_input_contents + [model_turn]
 
-                        new_interaction = f"\nUsuario: {raw_text}\nBot: {response.text}"
-                        updated_context = current_context + new_interaction
+                save_user_data(phone_number=sender_id, context=new_history)
+                log.debug(
+                    f"🧠 Memoria Estructurada actualizada ({len(new_history)} items)"
+                )
 
-                        save_user_data(phone_number=sender_id, context=updated_context)
-                        log.debug(f"🧠 Memoria actualizada para {sender_id}")
-                    except Exception as e:
-                        log.error(f"⚠️ Error actualizando memoria: {e}")
+            except Exception as e:
+                log.error(f"Error guardando memoria: {e}")
 
-        # 2. Iniciar nuevo timer al terminar de responder (fuera del bloque de texto/función)
+        # 2. Iniciar nuevo timer
         start_timer(sender_id)
     except Exception as e:
         log.error(f"❌ Error fatal en hilo de procesamiento: {e}")
