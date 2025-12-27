@@ -1000,7 +1000,7 @@ def download_audio(url):
     """Descarga el audio para Gemini, retorna bytes"""
     headers = {"Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}"}
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         return response.content
     except Exception as e:
@@ -1512,6 +1512,9 @@ def whatsapp_webhook(request):
                                         interactive = message_event.get("interactive")
                                         button_reply = interactive.get("button_reply")
                                         button_id = button_reply.get("id")
+
+                                        # MARCAR LEIDO (Critical Fix)
+                                        mark_whatsapp_read(wamid)
 
                                         # Guardar acción del usuario SIEMPRE
                                         if button_id == "button1":
