@@ -94,7 +94,10 @@ def send_catalog_message(receptor_wsp_id, body_text="¡Mira nuestro catálogo! �
         try:
             contact_obj = Contact.objects.get(phone=receptor_wsp_id)
             Message.objects.create(
-                contact=contact_obj, text="*Bot envió el catálogo*", is_bot=True
+                contact=contact_obj,
+                text="*Bot envió el catálogo*",
+                is_bot=True,
+                message_type="catalog_message",
             )
         except Contact.DoesNotExist:
             pass
@@ -193,6 +196,7 @@ def send_product_list_message(
                 contact=contact_obj,
                 text="*Bot envió una lista de productos*",
                 is_bot=True,
+                message_type="product_list",
             )
         except Contact.DoesNotExist:
             pass
