@@ -134,6 +134,34 @@ def process_gemini_message(
                 return
 
         text_body = raw_text.lower().strip()
+
+        # --- 🚀 FAST PATH: Intenciones Directas sin LLM ---
+        # Interceptar solicitudes obvias de catálogo/productos para respuesta inmediata
+        fast_intent_keywords = [
+            "ver productos",
+            "ver catalogo",
+            "ver catálogo",
+            "el catalogo",
+            "el catálogo",
+            "ver prendas",
+            "ver ropa",
+            "alguna prenda",
+            "muestrame productos",
+            "mostrar productos",
+        ]
+
+        # Si el mensaje es CORTO y contiene alguna palabra clave, enviamos catálogo directo.
+        # Evitamos falsos positivos en frases largas complejas donde el contexto importa.
+        if len(text_body) < 50 and any(k in text_body for k in fast_intent_keywords):
+            log.info(
+                f"⚡ Intención de catálogo detectada (Fast Path) en: '{text_body}'"
+            )
+            send_catalog_message(
+                sender_id,
+                "¡Claro! 🛍️ Aquí tienes nuestro catálogo completo para que veas todas las prendas:",
+            )
+            return
+
         max_reintentos = 4
 
         # --- CONSTRUCCIÓN DE HISTORIAL ESTRUCTURADO (Structured Chat History) ---

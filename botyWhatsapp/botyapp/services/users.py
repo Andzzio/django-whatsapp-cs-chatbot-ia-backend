@@ -2,6 +2,7 @@ import threading
 from django.core.cache import cache
 from logger import log
 from .whatsapp import send_whatsapp_message
+from botyapp.models import Contact
 
 # Diccionario global para gestionar timers de re-enganche
 user_timers = {}
@@ -83,6 +84,20 @@ def cancel_timer(sender_id):
 def send_reengagement_message(sender_id):
     """Envía un mensaje de recuperación si el usuario está inactivo"""
     try:
+        # Verificar si el bot sigue activo para este usuario
+        try:
+            contact = Contact.objects.get(phone=sender_id)
+            if not contact.is_bot_active:
+                log.debug(
+                    f"🛑 Re-enganche cancelado para {sender_id}: Bot desactivado."
+                )
+                if sender_id in user_timers:
+                    del user_timers[sender_id]
+                return
+        except Contact.DoesNotExist:
+            log.warning(f"⚠️ Contacto no encontrado para re-enganche: {sender_id}")
+            return
+
         log.debug(f"⏰ Ejecutando re-enganche para {sender_id}")
 
         message = (
