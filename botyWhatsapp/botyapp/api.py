@@ -253,8 +253,15 @@ def send_product_to_contact(request, phone):
             if not retailer_id:
                 return JsonResponse({"error": "retailer_id required"}, status=400)
 
+            # Recuperar datos del producto del caché para enriquecer el mensaje
+            cache_key = f"catalog_products_{settings.CATALOG_ID}"
+            products_dict = cache.get(cache_key) or {}
+            product_data = products_dict.get(retailer_id)
+
             # Enviar mensaje de producto usando servicio existente
-            send_product_message(phone, settings.CATALOG_ID, retailer_id)
+            send_product_message(
+                phone, settings.CATALOG_ID, retailer_id, product_data=product_data
+            )
 
             # Registrar en BD como mensaje del bot
             # Intentar obtener info del producto para el caption/texto local

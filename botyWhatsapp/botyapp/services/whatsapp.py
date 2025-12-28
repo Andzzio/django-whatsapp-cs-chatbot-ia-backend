@@ -110,7 +110,11 @@ def send_catalog_message(receptor_wsp_id, body_text="¡Mira nuestro catálogo! �
 
 
 def send_product_message(
-    receptor_wsp_id, catalog_id, product_retailer_id, body_text="¡Mira este producto! 🛍️"
+    receptor_wsp_id,
+    catalog_id,
+    product_retailer_id,
+    body_text="¡Mira este producto! 🛍️",
+    product_data=None,
 ):
     """
     Envía un producto específico del catálogo
@@ -143,8 +147,24 @@ def send_product_message(
         log.debug(f"✅ Producto enviado exitosamente: {response.json()}")
         try:
             contact_obj = Contact.objects.get(phone=receptor_wsp_id)
+
+            # Preparar datos para UI
+            text_content = "*Bot envió productos*"
+            caption_data = {}
+
+            if product_data:
+                # Usar el nombre del producto como texto principal (limpio)
+                text_content = product_data.get("name", text_content)
+                caption_data["image_url"] = product_data.get("image_url")
+                caption_data["price"] = product_data.get("price")
+                caption_data["currency"] = product_data.get("currency")
+
             Message.objects.create(
-                contact=contact_obj, text="*Bot envió productos*", is_bot=True
+                contact=contact_obj,
+                text=text_content,
+                is_bot=True,
+                message_type="product",
+                caption=json.dumps(caption_data) if caption_data else None,
             )
         except Contact.DoesNotExist:
             pass
@@ -197,6 +217,7 @@ def send_product_list_message(
                 text="*Bot envió una lista de productos*",
                 is_bot=True,
                 message_type="product_list",
+                caption=json.dumps(sections),
             )
         except Contact.DoesNotExist:
             pass
@@ -246,6 +267,7 @@ def send_contact_message(sender_id):
                 contact=contact_obj,
                 text="*Bot envió el contacto registrado*",
                 is_bot=True,
+                message_type="contact_message",
             )
         except Contact.DoesNotExist:
             pass
@@ -301,6 +323,7 @@ def send_button_catalog_agent(sender_id, message):
                 contact=contact_obj,
                 text="*Bot envió los botones para elegir entre contactar agente y ver catálogo*",
                 is_bot=True,
+                message_type="button_message",
             )
         except Contact.DoesNotExist:
             pass
@@ -333,7 +356,10 @@ def send_image(sender_id, image_id):
         try:
             contact_obj = Contact.objects.get(phone=sender_id)
             Message.objects.create(
-                contact=contact_obj, text="*Bot envió una imagen*", is_bot=True
+                contact=contact_obj,
+                text="*Bot envió una imagen*",
+                is_bot=True,
+                message_type="image_message",
             )
         except Contact.DoesNotExist:
             pass
