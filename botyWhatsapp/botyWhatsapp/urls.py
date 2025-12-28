@@ -14,19 +14,38 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
-from django.contrib import admin
+
 from django.urls import path
 import botyapp.views
-from botyapp.api import sync_data, toggle_bot_status, send_message_to_contact, get_media, send_media_message, mark_messages_read
+from botyapp.api import (
+    sync_data,
+    toggle_bot_status,
+    send_message_to_contact,
+    get_media,
+    send_media_message,
+    mark_messages_read,
+    get_products_list,
+    send_product_to_contact,
+)
 
 urlpatterns = [
-    #path('admin/', admin.site.urls),
-    path('', botyapp.views.health_check, name='health_check'),
+    # path('admin/', admin.site.urls),
+    path("", botyapp.views.health_check, name="health_check"),
     path("webhook/", botyapp.views.whatsapp_webhook, name="whatsapp_webhook_meta"),
     path("api/sync/", sync_data, name="api_sync"),
     path("api/contacts/<str:phone>/toggle-bot/", toggle_bot_status, name="toggle_bot"),
-    path("api/contacts/<str:phone>/send-message/", send_message_to_contact, name="send_message"),
+    path(
+        "api/contacts/<str:phone>/send-message/",
+        send_message_to_contact,
+        name="send_message",
+    ),
     path("api/media/<str:media_id>/", get_media, name="get_media"),
     path("api/contacts/<str:phone>/send-media/", send_media_message, name="send_media"),
     path("api/contacts/<str:phone>/mark-read/", mark_messages_read, name="mark_read"),
+    path("api/products/", get_products_list, name="get_products"),
+    path(
+        "api/contacts/<str:phone>/send-product/",
+        send_product_to_contact,
+        name="send_product",
+    ),
 ]
