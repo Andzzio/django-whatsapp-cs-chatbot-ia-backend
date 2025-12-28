@@ -254,7 +254,7 @@ def send_product_to_contact(request, phone):
                 return JsonResponse({"error": "retailer_id required"}, status=400)
 
             # Enviar mensaje de producto usando servicio existente
-            send_product_message(phone, retailer_id)
+            send_product_message(phone, settings.CATALOG_ID, retailer_id)
 
             # Registrar en BD como mensaje del bot
             # Intentar obtener info del producto para el caption/texto local
