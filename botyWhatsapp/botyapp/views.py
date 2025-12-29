@@ -9,13 +9,11 @@ from .models import Contact, Message
 from django.db import IntegrityError
 
 # Importar Servicios
-from .services.users import save_user_data, get_user_name, get_image_id
+from .services.users import save_user_data, get_user_name
 from .services.whatsapp import (
     mark_whatsapp_read,
     send_whatsapp_message,
-    send_contact_message,
     send_catalog_message,
-    send_image,
 )
 from .services.orders import process_order
 from .services.message_handler import MessageHandler
@@ -242,25 +240,32 @@ def whatsapp_webhook(request):
                                                 )
 
                                         if button_id == "button1":
-                                            log.debug("✅ ACCEDIENDO AL CONTACTO")
-                                            send_whatsapp_message(
-                                                sender_id,
-                                                "¡Con gusto linda!❤️\n\nEntiendo que deseas hablar directamente con nuestro encargado.\nÉl estará encantado de ayudarte con lo que necesites, ya sea una consulta especial o asesoría personalizada.\n\n✨Gracias por confiar en nosotros. Tu estilo merece atención directa\nCon cariño,\nTu equipo de moda femenina 💃",
-                                            )
-                                            send_contact_message(sender_id)
-                                            notify = f"*NOTIFICACIÓN DE SOLICITUD DE AYUDA POR CLIENTE*\n- NUMERO DEL CLIENTE: {sender_id}\n- NOMBRE DEL CLIENTE: {get_user_name(sender_id)}"
-                                            send_whatsapp_message(
-                                                settings.OWNER_PHONE_NUMBER, notify
-                                            )
                                             log.debug(
-                                                f"MENSAJE ENVIADO EXITOSAMENTE: {notify}"
+                                                "✅ ACCEDIENDO AL CONTACTO (HANDOVER)"
+                                            )
+                                            from botyapp.services.contact_service import (
+                                                ContactService,
                                             )
 
-                                            send_image(
-                                                settings.OWNER_PHONE_NUMBER,
-                                                get_image_id(sender_id),
+                                            # Intentamos recuperar el image_id del contexto si existe (sería ideal, pero por ahora null)
+                                            # El flujo de imagen envía ID -> luego el user da click -> no tenemos la imagen en el callback del botón directamente
+                                            # pero podríamos buscar el último mensaje de tipo imagen del usuario.
+                                            last_image_msg = (
+                                                contact_obj.messages.filter(
+                                                    message_type="image"
+                                                )
+                                                .order_by("-timestamp")
+                                                .first()
                                             )
-                                            log.debug("IMAGEN ENVIADA EXITOSAMENTE")
+                                            img_id_context = (
+                                                last_image_msg.media_id
+                                                if last_image_msg
+                                                else None
+                                            )
+
+                                            ContactService.handover_to_human(
+                                                contact_obj, img_id_context
+                                            )
                                         if button_id == "button2":
                                             log.debug("✅ ACCEDIENDO AL CATALOGO")
                                             send_catalog_message(

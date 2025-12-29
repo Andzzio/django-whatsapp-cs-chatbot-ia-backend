@@ -7,6 +7,7 @@ class Contact(models.Model):
     phone = models.CharField(max_length=20, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
     is_bot_active = models.BooleanField(default=True)
+    needs_human_attention = models.BooleanField(default=False)  # Solicitud de vendedor
     bot_disabled_at = models.DateTimeField(null=True, blank=True)
 
     # CRM Fields

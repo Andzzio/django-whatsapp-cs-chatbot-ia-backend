@@ -7,14 +7,11 @@ Este módulo se ejecuta ANTES del Flujo de Sales Intelligence para interceptar:
 
 from logger import log
 from botyapp.models import Contact, ProductEmbedding
-from botyapp.services.intelligence.product_image_matcher import product_matcher
 from botyapp.services.sales.purchase_intent_detector import PurchaseIntentDetector
 from botyapp.services.sales.order_processor import OrderProcessor
 from botyapp.services.whatsapp import (
     send_whatsapp_message,
     send_product_message,
-    download_and_optimize_image,
-    get_whatsapp_media_url,
 )
 from django.conf import settings
 
@@ -71,89 +68,36 @@ class SmartMessageProcessor:
         }
 
     def _handle_image(self, contact: Contact, caption: str, media_id: str) -> dict:
-        """Identifica producto en imagen"""
+        """
+        Maneja recepción de imagen.
+        Estrategia Profesional: No adivinar inmediato. Dar control al usuario.
+        Opciones: Ver Catálogo o Hablar con Humano.
+        """
         try:
-            # Descargar imagen
-            media_url = get_whatsapp_media_url(media_id)
-            if not media_url:
-                return {"handled": False}
+            from botyapp.services.whatsapp import send_button_catalog_agent
 
-            image_bytes = download_and_optimize_image(media_url)
-            if not image_bytes:
-                return {"handled": False}
+            log.info(
+                f"📸 Imagen recibida de {contact.name}. Enviando menú de opciones."
+            )
 
-            # Identificar producto
-            log.info(f"🔍 Identificando producto en imagen para {contact.name}")
-            matches = product_matcher.identify_product(image_bytes)
+            # Enviar menú de decisión
+            # "He recibido tu imagen. ¿Qué deseas hacer?"
+            send_button_catalog_agent(
+                contact.phone,
+                "📸 He recibido tu imagen.\n\nPara ayudarte mejor, por favor elige una opción:",
+            )
 
-            if matches and matches[0].is_certain:
-                # Match con >85% confianza → Es este producto
-                product = matches[0].product
-                confidence = matches[0].confidence
+            # Opcional: Podríamos identificar el producto en background y guardarlo en caché
+            # para cuando el usuario presione "Ver Catálogo", pero por ahora mantenlo simple y robusto.
 
-                response = (
-                    f"✅ **Identificado:** {product.product_name}\n\n"
-                    f"💰 Precio: S/{product.price}\n"
-                    f"📏 Tallas disponibles: S, M, L, XL\n\n"
-                    f"¿Te gustaría comprarlo?"
-                )
-
-                send_whatsapp_message(contact.phone, response)
-                send_product_message(
-                    contact.phone, product.retailer_id, settings.CATALOG_ID
-                )
-
-                # Guardar en contexto para posible checkout
-                self._save_last_viewed_product(contact, product)
-
-                log.info(
-                    f"✅ Producto identificado con {confidence:.0%} confianza: {product.product_name}"
-                )
-
-                return {
-                    "handled": True,
-                    "response": response,
-                    "product_identified": product,
-                }
-
-            elif matches:
-                # Match 70-85% → Probablemente uno de estos
-                response = (
-                    "📸 Vi tu imagen. Podría ser uno de estos productos:\n"
-                    "(Dime el número del que buscas)"
-                )
-
-                send_whatsapp_message(contact.phone, response)
-
-                # Enviar top 3 productos
-                for match in matches[:3]:
-                    send_product_message(
-                        contact.phone, match.product.retailer_id, settings.CATALOG_ID
-                    )
-
-                return {
-                    "handled": True,
-                    "response": response,
-                    "candidates": matches,
-                }
-
-            else:
-                # No match >70%
-                response = (
-                    "📸 Vi tu imagen pero no logré identificar el producto específico.\n\n"
-                    "¿Puedes decirme qué estás buscando?\n"
-                    "Ejemplo: 'palazzo tribal' o 'vestido flores'"
-                )
-
-                send_whatsapp_message(contact.phone, response)
-
-                return {
-                    "handled": True,
-                    "response": response,
-                }
+            return {
+                "handled": True,
+                "response": "Menu de imagen enviado",
+                "waiting_for_user_choice": True,
+            }
 
         except Exception as e:
-            log.error(f"Error en identificación de imagen: {e}")
+            log.error(f"Error handling image menu: {e}")
             return {"handled": False}
 
     def _handle_checkout_flow(self, contact: Contact, order, message: str) -> dict:

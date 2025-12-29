@@ -62,6 +62,7 @@ def sync_data(request):
                     "unread_count": contact.messages.filter(
                         is_read=False, is_bot=False
                     ).count(),
+                    "needs_human_attention": contact.needs_human_attention,
                     "history": msgs,
                 }
             )
