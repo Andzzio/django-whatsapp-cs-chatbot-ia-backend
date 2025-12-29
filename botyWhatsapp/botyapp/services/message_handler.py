@@ -119,6 +119,27 @@ class MessageHandler:
                 except Exception as e:
                     log.error(f"Error resetting history: {e}")
             # ---------------------------------------------
+            if text_body and text_body.strip().lower() == "/build":
+                try:
+                    from botyapp.services.whatsapp import send_whatsapp_message
+                    from botyapp.services.intelligence.product_image_matcher import (
+                        product_matcher,
+                    )
+                    import threading
+
+                    send_whatsapp_message(
+                        sender_id,
+                        "🔧 *Iniciando re-indexación manual...* Esto tomará unos minutos.",
+                    )
+
+                    # Ejecutar en background para no bloquear
+                    threading.Thread(
+                        target=product_matcher.reindex_all_products
+                    ).start()
+                    return
+                except Exception as e:
+                    log.error(f"Error triggering build: {e}")
+            # ---------------------------------------------
 
             if intent_result.action == "show_catalog":
                 log.info(
