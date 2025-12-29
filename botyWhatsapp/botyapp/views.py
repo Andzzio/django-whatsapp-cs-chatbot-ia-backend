@@ -212,14 +212,16 @@ def whatsapp_webhook(request):
                                         if button_id == "button1":
                                             Message.objects.create(
                                                 contact=contact_obj,
-                                                text="*Cliente eligió contactar a un agente*",
+                                                text="Contactar Agente",
                                                 is_bot=False,
+                                                message_type="button_reply",
                                             )
                                         elif button_id == "button2":
                                             Message.objects.create(
                                                 contact=contact_obj,
-                                                text="*Cliente eligió acceder al catálogo*",
+                                                text="Ver Catálogo",
                                                 is_bot=False,
+                                                message_type="button_reply",
                                             )
 
                                         if not contact_obj.is_bot_active:

@@ -369,7 +369,7 @@ def send_button_catalog_agent(sender_id, message):
             wamid = res_json["messages"][0]["id"] if "messages" in res_json else None
             Message.objects.create(
                 contact=contact_obj,
-                text="*Bot envió los botones para elegir entre contactar agente y ver catálogo*",
+                text=message,
                 is_bot=True,
                 message_type="button_message",
                 message_id=wamid,
