@@ -153,6 +153,12 @@ def send_media_message(request, phone):
             # 3. Guardar en DB
             try:
                 contact = Contact.objects.get(phone=phone)
+
+                # Limpieza automática de alerta
+                if contact.needs_human_attention:
+                    contact.needs_human_attention = False
+                    contact.save()
+
                 Message.objects.create(
                     contact=contact,
                     text=f"*{media_type.capitalize()} enviado*",
@@ -242,6 +248,16 @@ def send_message_to_contact(request, phone):
                     log.warning(f"Reply ID {reply_to_db_id} not found in DB.")
 
             send_whatsapp_message(phone, text, reply_to_message_id=wamid_context)
+
+            # Limpieza automática de alerta de ayuda
+            try:
+                contact = Contact.objects.get(phone=phone)
+                if contact.needs_human_attention:
+                    contact.needs_human_attention = False
+                    contact.save()
+            except Contact.DoesNotExist:
+                pass
+
             return JsonResponse({"status": "success", "message": "sent"})
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
@@ -299,6 +315,11 @@ def send_product_to_contact(request, phone):
             cache_key = f"catalog_products_{settings.CATALOG_ID}"
             products_dict = cache.get(cache_key) or {}
             product_data = products_dict.get(retailer_id)
+
+            # Limpieza automática de alerta
+            if contact.needs_human_attention:
+                contact.needs_human_attention = False
+                contact.save()
 
             # Enviar mensaje de producto usando servicio existente
             send_product_message(
