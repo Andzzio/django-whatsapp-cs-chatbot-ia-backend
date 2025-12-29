@@ -1,7 +1,6 @@
 import time
 import functools
 from logger import log
-from django.db import InterfaceError, OperationalError
 
 
 class ErrorHandler:

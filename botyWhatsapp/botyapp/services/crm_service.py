@@ -1,6 +1,5 @@
 from botyapp.models import Contact
 from logger import log
-from typing import List
 
 
 class CRMService:

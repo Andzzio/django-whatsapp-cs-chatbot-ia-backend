@@ -25,13 +25,17 @@ def send_whatsapp_message(receptor_wsp_id, text_answer):
             settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
         )
         response.raise_for_status()
-        log.debug(f"Mensaje enviado exitosamente: {response.json()}")
+        res_json = response.json()
+        log.debug(f"Mensaje enviado exitosamente: {res_json}")
         try:
             contact_obj = Contact.objects.get(phone=receptor_wsp_id)
-            Message.objects.create(contact=contact_obj, text=text_answer, is_bot=True)
+            wamid = res_json["messages"][0]["id"] if "messages" in res_json else None
+            Message.objects.create(
+                contact=contact_obj, text=text_answer, is_bot=True, message_id=wamid
+            )
         except Contact.DoesNotExist:
             pass
-        return response.json()
+        return res_json
     except requests.exceptions.RequestException as e:
         log.error(f"Error al enviar mensaje de Whatsapp {e}")
         log.error(
@@ -90,18 +94,21 @@ def send_catalog_message(receptor_wsp_id, body_text="¡Mira nuestro catálogo! �
             settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
         )
         response.raise_for_status()
-        log.debug(f"✅ Catálogo enviado exitosamente: {response.json()}")
+        res_json = response.json()
+        log.debug(f"✅ Catálogo enviado exitosamente: {res_json}")
         try:
             contact_obj = Contact.objects.get(phone=receptor_wsp_id)
+            wamid = res_json["messages"][0]["id"] if "messages" in res_json else None
             Message.objects.create(
                 contact=contact_obj,
                 text="*Bot envió el catálogo*",
                 is_bot=True,
                 message_type="catalog_message",
+                message_id=wamid,
             )
         except Contact.DoesNotExist:
             pass
-        return response.json()
+        return res_json
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar catálogo: {e}")
         if hasattr(e.response, "text") and e.response:
@@ -144,9 +151,11 @@ def send_product_message(
             settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
         )
         response.raise_for_status()
-        log.debug(f"✅ Producto enviado exitosamente: {response.json()}")
+        res_json = response.json()
+        log.debug(f"✅ Producto enviado exitosamente: {res_json}")
         try:
             contact_obj = Contact.objects.get(phone=receptor_wsp_id)
+            wamid = res_json["messages"][0]["id"] if "messages" in res_json else None
 
             # Preparar datos para UI
             text_content = "*Bot envió productos*"
@@ -165,10 +174,11 @@ def send_product_message(
                 is_bot=True,
                 message_type="product",
                 caption=json.dumps(caption_data) if caption_data else None,
+                message_id=wamid,
             )
         except Contact.DoesNotExist:
             pass
-        return response.json()
+        return res_json
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar producto: {e}")
         if hasattr(e.response, "text") and e.response:
@@ -223,19 +233,22 @@ def send_product_list_message(
             settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
         )
         response.raise_for_status()
-        log.debug(f"✅ Lista de productos enviada exitosamente: {response.json()}")
+        res_json = response.json()
+        log.debug(f"✅ Lista de productos enviada exitosamente: {res_json}")
         try:
             contact_obj = Contact.objects.get(phone=receptor_wsp_id)
+            wamid = res_json["messages"][0]["id"] if "messages" in res_json else None
             Message.objects.create(
                 contact=contact_obj,
                 text="*Bot envió una lista de productos*",
                 is_bot=True,
                 message_type="product_list",
                 caption=json.dumps(sections),
+                message_id=wamid,
             )
         except Contact.DoesNotExist:
             pass
-        return response.json()
+        return res_json
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar lista de productos: {e}")
         if hasattr(e.response, "text") and e.response:
@@ -274,18 +287,21 @@ def send_contact_message(sender_id):
             settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
         )
         response.raise_for_status()
-        log.debug(f"Contacto enviado exitosamente: {response.json()}")
+        res_json = response.json()
+        log.debug(f"Contacto enviado exitosamente: {res_json}")
         try:
             contact_obj = Contact.objects.get(phone=sender_id)
+            wamid = res_json["messages"][0]["id"] if "messages" in res_json else None
             Message.objects.create(
                 contact=contact_obj,
                 text="*Bot envió el contacto registrado*",
                 is_bot=True,
                 message_type="contact_message",
+                message_id=wamid,
             )
         except Contact.DoesNotExist:
             pass
-        return response.json()
+        return res_json
     except requests.exceptions.RequestException as e:
         log.error(f"Error al enviar contacto de Whatsapp {e}")
         return None
@@ -330,18 +346,21 @@ def send_button_catalog_agent(sender_id, message):
     try:
         response = requests.post(settings.WHATSAPP_URL, headers=headers, json=data)
         response.raise_for_status()
-        log.debug("MENSAJE DE BOTONES ENVIADO CON ÉXITO")
+        res_json = response.json()
+        log.debug(f"MENSAJE DE BOTONES ENVIADO CON ÉXITO: {res_json}")
         try:
             contact_obj = Contact.objects.get(phone=sender_id)
+            wamid = res_json["messages"][0]["id"] if "messages" in res_json else None
             Message.objects.create(
                 contact=contact_obj,
                 text="*Bot envió los botones para elegir entre contactar agente y ver catálogo*",
                 is_bot=True,
                 message_type="button_message",
+                message_id=wamid,
             )
         except Contact.DoesNotExist:
             pass
-        return response.json()
+        return res_json
     except requests.exceptions.RequestException as e:
         log.error(f"Ocurrió un error al enviar el mensaje {e}")
         return None
@@ -366,18 +385,21 @@ def send_image(sender_id, image_id):
             settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
         )
         response.raise_for_status()
-        log.debug(f"Imagen enviada exitosamente: {response.json()}")
+        res_json = response.json()
+        log.debug(f"Imagen enviada exitosamente: {res_json}")
         try:
             contact_obj = Contact.objects.get(phone=sender_id)
+            wamid = res_json["messages"][0]["id"] if "messages" in res_json else None
             Message.objects.create(
                 contact=contact_obj,
                 text="*Bot envió una imagen*",
                 is_bot=True,
                 message_type="image_message",
+                message_id=wamid,
             )
         except Contact.DoesNotExist:
             pass
-        return response.json()
+        return res_json
     except requests.exceptions.RequestException as e:
         log.error(f"Error al enviar imagen de Whatsapp {e}")
         log.error(
