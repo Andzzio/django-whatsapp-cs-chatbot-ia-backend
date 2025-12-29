@@ -37,7 +37,7 @@ def button_tool():
         function_declarations=[
             types.FunctionDeclaration(
                 name="show_catalog",
-                description="Muestra el catálogo de productos cuando el usuario solicita ver productos, el catálogo, o quiere comprar algo",
+                description="Muestra el catálogo visual de productos al usuario. ÚSALA INMEDIATAMENTE si el usuario pide ver productos, catálogo, ropa o comprar.",
                 parameters=types.Schema(
                     type=types.Type.OBJECT, properties={}, required=[]
                 ),
@@ -215,10 +215,12 @@ def process_gemini_message(
         catalog_context = get_catalog_context(settings.CATALOG_ID)
         system_instruction_text = (
             f"{settings.SYSTEM_PROMPT}\n\n"
-            "--- DIRECTRICES DE AGENTE PROACTIVO (SCALABLE BEHAVIOR) ---\n"
-            "1. CERO FRICCIÓN: Si el usuario muestra interés en una categoría, NO PREGUNTES si quiere verla. MUESTRA LOS PRODUCTOS INMEDIATAMENTE.\n"
-            "2. INTERPRETACIÓN DE INTENCIÓN: Si el contexto implica que el usuario busca algo, asume la orden y EJECUTA la herramienta adecuada.\n"
-            "3. EVITAR REDUNDANCIA: No pidas confirmación sobre confirmación.\n\n"
+            "--- DIRECTRICES DE USO DE HERRAMIENTAS (CRÍTICO) ---\n"
+            "1. NO NARRES TUS ACCIONES: Nunca escribas texto como '[SISTEMA:...]' o 'He ejecutado...'.\n"
+            "2. USA LA HERRAMIENTA NATIVA: Si el usuario quiere ver catálogo o productos, DEBES generar un 'Function Call' para show_catalog.\n"
+            "3. ACCIÓN INMEDIATA: Ante intención de ver productos, LLAMA A LA FUNCIÓN. No preguntes ni confirmes con texto.\n"
+            "--- DIRECTRICES DE AGENTE PROACTIVO ---\n"
+            "1. CERO FRICCIÓN: Muestra productos inmediatamente si hay interés.\n"
             f"--- CONOCIMIENTO DEL NEGOCIO ---\n{catalog_context}"
         )
 

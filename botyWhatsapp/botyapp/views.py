@@ -73,6 +73,24 @@ def whatsapp_webhook(request):
                                         f"RECUPERANDO EL NOMBRE DEL CLIENTE {get_user_name(sender_id)}"
                                     )
 
+                                    # Lógica de Respuesta (Context / Reply)
+                                    reply_to_msg = None
+                                    context = message_event.get("context")
+                                    if context and "id" in context:
+                                        original_wamid = context["id"]
+                                        try:
+                                            reply_to_msg = Message.objects.filter(
+                                                message_id=original_wamid
+                                            ).first()
+                                            if reply_to_msg:
+                                                log.debug(
+                                                    f"🔗 Mensaje es respuesta a: {original_wamid}"
+                                                )
+                                        except Exception as e:
+                                            log.warning(
+                                                f"Error buscando mensaje original: {e}"
+                                            )
+
                                     if message_type == "order":
                                         contact_obj = Contact.objects.get(
                                             phone=sender_id
@@ -81,6 +99,7 @@ def whatsapp_webhook(request):
                                             contact=contact_obj,
                                             text="*Cliente envió una orden de pedido*",
                                             is_bot=False,
+                                            reply_to=reply_to_msg,
                                         )
                                         log.debug("🛒 ORDEN DETECTADA")
                                         order_data = message_event.get("order", {})
@@ -101,6 +120,7 @@ def whatsapp_webhook(request):
                                                 text="*Imagen*",
                                                 is_bot=False,
                                                 message_type="image",
+                                                reply_to=reply_to_msg,
                                                 media_id=image_id,
                                                 caption=caption,
                                                 message_id=wamid,
@@ -159,6 +179,7 @@ def whatsapp_webhook(request):
                                                 text="*Nota de voz*",
                                                 is_bot=False,
                                                 message_id=wamid,
+                                                reply_to=reply_to_msg,
                                                 message_type="audio",
                                                 media_id=audio_id,
                                             )

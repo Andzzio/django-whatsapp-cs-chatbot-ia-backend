@@ -31,3 +31,6 @@ class Message(models.Model):
     media_id = models.CharField(max_length=255, null=True, blank=True)
     caption = models.TextField(null=True, blank=True)
     is_read = models.BooleanField(default=False)
+    reply_to = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="replies"
+    )

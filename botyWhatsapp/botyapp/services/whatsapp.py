@@ -191,6 +191,20 @@ def send_product_list_message(
         "Content-Type": "application/json",
     }
 
+    import copy
+
+    # Crear copia limpia para la API de WhatsApp (solo permite product_retailer_id)
+    api_sections = copy.deepcopy(sections)
+    for section in api_sections:
+        if "product_items" in section:
+            for item in section["product_items"]:
+                # Mantener solo product_retailer_id, eliminar metadatos extra
+                keys_to_keep = ["product_retailer_id"]
+                item_keys = list(item.keys())
+                for key in item_keys:
+                    if key not in keys_to_keep:
+                        del item[key]
+
     data = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
@@ -200,7 +214,7 @@ def send_product_list_message(
             "type": "product_list",
             "header": {"type": "text", "text": header_text},
             "body": {"text": body_text},
-            "action": {"catalog_id": catalog_id, "sections": sections},
+            "action": {"catalog_id": catalog_id, "sections": api_sections},
         },
     }
 

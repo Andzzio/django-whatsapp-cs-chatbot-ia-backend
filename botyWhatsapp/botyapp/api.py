@@ -25,8 +25,21 @@ def sync_data(request):
             msgs = []
 
             for m in contact.messages.all().order_by("timestamp"):
+                reply_info = None
+                if m.reply_to:
+                    reply_info = {
+                        "id": m.reply_to.id,
+                        "text": m.reply_to.text,
+                        "type": m.reply_to.message_type,
+                        "media_id": m.reply_to.media_id,
+                        "sender_name": (
+                            m.reply_to.contact.name if not m.reply_to.is_bot else "Bot"
+                        ),
+                    }
+
                 msgs.append(
                     {
+                        "id": m.id,
                         "user": "BOTY" if m.is_bot else contact.name,
                         "text": m.text,
                         "time": m.timestamp.astimezone(
@@ -36,6 +49,8 @@ def sync_data(request):
                         "type": m.message_type,
                         "media_id": m.media_id,
                         "caption": m.caption,
+                        "is_read": m.is_read,
+                        "reply_to": reply_info,
                     }
                 )
             response_data.append(

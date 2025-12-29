@@ -263,7 +263,15 @@ def search_and_send_products(sender_id, search_term):
             top_matches = matches[:10]
             product_items = []
             for prod in top_matches:
-                product_items.append({"product_retailer_id": prod["retailer_id"]})
+                product_items.append(
+                    {
+                        "product_retailer_id": prod["retailer_id"],
+                        "name": prod.get("name"),
+                        "image_url": prod.get("image_url"),
+                        "price": prod.get("price"),
+                        "currency": prod.get("currency"),
+                    }
+                )
 
             sections = [{"title": "Resultados", "product_items": product_items}]
 
