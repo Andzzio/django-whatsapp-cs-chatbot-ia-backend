@@ -33,3 +33,4 @@ Pillow==11.0.0
 
 dj-database-url==2.1.0
 psycopg[binary]
+numpy==1.26.4
