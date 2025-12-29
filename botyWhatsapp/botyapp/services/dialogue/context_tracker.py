@@ -3,10 +3,9 @@ Rastreador de contexto conversacional.
 Analiza qué se ha discutido y detecta señales de compra.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Any
 import re
-from botyapp.models import Contact, Message
-from logger import log
+from botyapp.models import Contact
 
 
 class ContextTracker:
@@ -247,7 +246,6 @@ class ContextTracker:
         - Cliente confundido (muchas preguntas repetidas)
         - Cliente solicita explícitamente hablar con persona
         """
-        context = self.analyze_conversation()
 
         # Solicitud explícita
         user_messages = [

@@ -59,6 +59,13 @@ class ProductEmbedding(models.Model):
     embedding_vector = models.JSONField(null=True, blank=True)
     embedding_model = models.CharField(max_length=100, default="gemini-embedding-001")
 
+    # Image embedding para identificación visual (NUEVO)
+    image_embedding_vector = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Embedding multimodal de la imagen del producto para identificación visual",
+    )
+
     # Metadata para búsqueda
     search_text = models.TextField()  # name + description normalizado
     stock_quantity = models.IntegerField(default=0)
@@ -123,3 +130,103 @@ class ConversationState(models.Model):
 
     def __str__(self):
         return f"{self.contact.name} - {self.current_stage}"
+
+
+class Order(models.Model):
+    """
+    Sistema de pedidos para checkout.
+    Maneja el flujo: Producto → Dirección → Pago
+    """
+
+    STATUS_CHOICES = [
+        ("PENDING", "Pendiente"),
+        ("CONFIRMED", "Confirmado"),
+        ("SHIPPED", "Enviado"),
+        ("DELIVERED", "Entregado"),
+        ("CANCELLED", "Cancelado"),
+    ]
+
+    CHECKOUT_STAGES = [
+        ("CONFIRMING_PRODUCT", "Confirmando Producto"),
+        ("COLLECTING_ADDRESS", "Capturando Dirección"),
+        ("PROCESSING_PAYMENT", "Procesando Pago"),
+        ("COMPLETED", "Completado"),
+    ]
+
+    contact = models.ForeignKey(
+        Contact, on_delete=models.CASCADE, related_name="orders"
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
+    checkout_stage = models.CharField(
+        max_length=30, choices=CHECKOUT_STAGES, default="CONFIRMING_PRODUCT"
+    )
+
+    # Shipping info
+    shipping_district = models.CharField(max_length=100, blank=True)
+    shipping_address = models.TextField(blank=True)
+    shipping_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # Payment info
+    payment_method = models.CharField(max_length=50, blank=True)
+    payment_proof = models.TextField(blank=True)  # URL o referencia
+
+    # Amounts
+    subtotal = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["contact", "status"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Orden #{self.id} - {self.contact.name} - {self.status}"
+
+    @property
+    def total_items(self):
+        return sum(item.quantity for item in self.items.all())
+
+    def calculate_totals(self):
+        """Calcula subtotal y total"""
+        self.subtotal = sum(
+            item.quantity * item.unit_price for item in self.items.all()
+        )
+        self.total_amount = self.subtotal + self.shipping_cost - self.discount
+        self.save(update_fields=["subtotal", "total_amount"])
+
+
+class OrderItem(models.Model):
+    """Items individuales de un pedido"""
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey(ProductEmbedding, on_delete=models.PROTECT)
+
+    quantity = models.IntegerField(default=1)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    # Snapshot del producto al momento de la compra
+    product_name = models.CharField(max_length=500)
+    product_image_url = models.URLField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def subtotal(self):
+        return self.quantity * self.unit_price
+
+    def __str__(self):
+        return f"{self.product_name} x{self.quantity}"
+
+    def save(self, *args, **kwargs):
+        # Auto-populate product info snapshot
+        if not self.product_name:
+            self.product_name = self.product.product_name
+        super().save(*args, **kwargs)

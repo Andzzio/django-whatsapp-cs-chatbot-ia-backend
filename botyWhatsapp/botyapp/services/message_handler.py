@@ -123,8 +123,33 @@ class MessageHandler:
                 )
                 return
 
-            # 7. SALES INTELLIGENCE SYSTEM (Autonomous Sales Bot)
-            # Procesar con SalesFlow para manejo inteligente de ventas
+            # 7. SMART MESSAGE PROCESSOR (Image Recognition + Checkout)
+            # Procesa ANTES del Sales Intelligence para interceptar:
+            # - Imágenes → Identificar producto
+            # - Intención de compra fuerte → Activar checkout
+            from botyapp.services.smart_processor import smart_processor
+
+            smart_result = smart_processor.process(
+                contact=contact_obj,
+                raw_text=raw_text,
+                media_id=media_id,
+                media_type=media_type,
+            )
+
+            # Si smart_processor manejó completamente el mensaje, terminar aquí
+            if smart_result.get("handled"):
+                log.info(
+                    f"✅ Smart Processor manejó el mensaje: {smart_result.get('response', '')[:50]}"
+                )
+
+                # Análisis CRM
+                CRMService.analyze_interaction(
+                    sender_id, text_body, intent_label="smart_processor"
+                )
+                return
+
+            # 8. SALES INTELLIGENCE SYSTEM (Autonomous Sales Bot)
+            # Solo se ejecuta si smart_processor no manejó el mensaje
             log.debug("🤖 Procesando con Sales Intelligence System")
 
             try:

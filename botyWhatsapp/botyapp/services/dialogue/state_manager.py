@@ -10,7 +10,7 @@ Estados del embudo:
 5. CLOSED: Venta cerrada o perdida
 """
 
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from django.utils import timezone
 from django.db.models import F
 
