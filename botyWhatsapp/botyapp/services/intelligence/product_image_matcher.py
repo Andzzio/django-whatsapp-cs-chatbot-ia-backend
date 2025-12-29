@@ -149,7 +149,7 @@ class ProductImageMatcher:
             )
 
             response = self.client.models.generate_content(
-                model="models/gemini-flash-lite-latest", contents=[prompt, part]
+                model="models/gemini-flash-latest", contents=[prompt, part]
             )
             description = response.text if response.text else "Prenda de ropa"
 

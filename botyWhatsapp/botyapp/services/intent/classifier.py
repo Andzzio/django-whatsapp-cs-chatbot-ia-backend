@@ -86,7 +86,7 @@ class GenerativeStrategy(IntentStrategy):
             )
 
             response = client.models.generate_content(
-                model="models/gemini-flash-latest",
+                model="models/gemini-flash-lite-latest",
                 contents=prompt,
                 config={"response_mime_type": "application/json"},
             )
