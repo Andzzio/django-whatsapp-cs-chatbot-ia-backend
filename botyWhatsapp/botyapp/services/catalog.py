@@ -10,6 +10,8 @@ from .whatsapp import (
     send_catalog_message,
     send_product_list_message,
 )
+from botyapp.models import ProductEmbedding
+from django.utils import timezone
 
 # Bloques try/except para librerías opcionales de visión
 try:
@@ -117,6 +119,66 @@ def sync_catalog_products(catalog_id):
         if hasattr(e, "response") and e.response:
             log.error(f"Detalles: {e.response.text}")
         return {}
+
+
+def sync_facebook_to_db(force=False):
+    """
+    Sincroniza el Catálogo de Facebook con la tabla SQL ProductEmbedding.
+    Vital para que la búsqueda por imagen funcione.
+    """
+    log.info("📥 Iniciando Sync Facebook -> SQL DB...")
+    products_dict = sync_catalog_products(settings.CATALOG_ID)
+
+    if not products_dict:
+        log.error("❌ No se obtuvieron productos de Facebook para sincronizar DB")
+        return False
+
+    count = 0
+    for retailer_id, product_data in products_dict.items():
+        try:
+            # Verificar si ya existe el embedding textual (Opcional: saltar si ya tiene)
+            # Pero para imagen necesitamos asegurar que el registro exista
+
+            name = product_data.get("name", "")
+            description = product_data.get("description", "")
+            category = product_data.get("category", "")
+            image_url = product_data.get("image_url", "")
+
+            # Parsear precio
+            price_value = 0.0
+            price_raw = product_data.get("price")
+            if isinstance(price_raw, dict):
+                price_value = float(price_raw.get("amount", 0))
+            elif isinstance(price_raw, str):
+                try:
+                    price_clean = price_raw.replace("S/", "").replace(",", ".").strip()
+                    price_value = float(price_clean)
+                except Exception:
+                    pass
+            elif isinstance(price_raw, (int, float)):
+                price_value = float(price_raw)
+
+            # Crear/Actualizar Objeto
+            ProductEmbedding.objects.update_or_create(
+                retailer_id=retailer_id,
+                defaults={
+                    "product_name": name,
+                    "description": description,
+                    "price": price_value,
+                    "category": category,
+                    "image_url": image_url,
+                    "is_available": True,
+                    "last_synced": timezone.now(),
+                    # search_text y embedding_vector se pueden generar aqui o en paso posterior
+                    # Por simplicidad para imagen, lo vital es el objeto y la URL
+                },
+            )
+            count += 1
+        except Exception as e:
+            log.error(f"Error syncing product {retailer_id}: {e}")
+
+    log.info(f"✅ DB Sync Completado: {count} productos actualizados en tabla SQL.")
+    return True
 
 
 def get_product_info(catalog_id, product_retailer_id):
@@ -247,13 +309,34 @@ def search_and_send_products(sender_id, search_term):
                 scored_products.append((similarity, prod))
 
         if not scored_products:
-            # Fallback direct a Catálogo (Zero Text)
-            send_catalog_message(sender_id, "No encontré exactos, pero mira todo:")
+            # Si no hay matches, pero el término es muy genérico (ej: "pantalones"),
+            # intentamos buscar por CATEGORIA en lugar de nombre.
+            for pid, prod in products_dict.items():
+                cat = prod.get("category", "").lower()
+                if term_clean in cat or cat in term_clean:
+                    scored_products.append((0.9, prod))
+
+        # Si aun asi no hay, fallback
+        if not scored_products:
+            # Fallback: Mostrar catálogo general
+            send_catalog_message(
+                sender_id,
+                "No encontré ese nombre exacto, ¡pero mira nuestra colección!",
+            )
             return
 
         # Ordenar por similitud (Mayor a menor)
+        # Eliminamos duplicados por retailer_id
+        seen_ids = set()
+        unique_matches = []
         scored_products.sort(key=lambda x: x[0], reverse=True)
-        matches = [p[1] for p in scored_products]
+
+        for score, prod in scored_products:
+            if prod["retailer_id"] not in seen_ids:
+                unique_matches.append(prod)
+                seen_ids.add(prod["retailer_id"])
+
+        matches = unique_matches
 
         # --- LÓGICA DE UI (LIST vs SINGLE) ---
 

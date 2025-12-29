@@ -1,3 +1,4 @@
+import re
 from google import genai
 from django.conf import settings
 from logger import log
@@ -42,7 +43,8 @@ class LLMEngine:
             "--- DIRECTRICES DE USO DE HERRAMIENTAS (CRÍTICO) ---\n"
             "1. NO NARRES TUS ACCIONES: Nunca escribas texto como '[SISTEMA:...]' o 'He ejecutado...'.\n"
             "2. USA LA HERRAMIENTA NATIVA: Si aplica, GENERA UN FUNCTION CALL.\n"
-            "3. PRIORIDAD AL CATÁLOGO: Si el usuario muestra interés en ver, comprar, buscar, modelos, ropa, prendas o fotos, DEBES llamar a 'show_catalog' INMEDIATAMENTE. No preguntes, solo muestra.\n"
+            "3. PROHIBIDO LISTAR TEXTO: Si el usuario pide productos (ej: 'busco pantalones'), NUNCA escribas una lista. DEBES ejecutar 'recommend_products' para mostrar la UI visual.\n"
+            "4. RESPUESTAS CORTAS: El cliente quiere IMAGEN, PRECIO y TALLA. No adivines, no uses texto de relleno. Ve al grano.\n"
             "--- PERFIL DEL USUARIO (CRM) ---\n"
             f"{crm_context}\n"
             "--- CONOCIMIENTO DEL NEGOCIO ---\n"
@@ -54,6 +56,38 @@ class LLMEngine:
         history = get_context(sender_id)
         if not isinstance(history, list):
             history = []
+
+        # CLEAN-READ: Limpiamos la memoria "al vuelo" antes de pensar.
+        # No tocamos la BD, solo lo que el modelo "ve" ahora.
+        clean_history = []
+        for turn in history:
+            try:
+                # Copia segura para no afectar referencias
+                if isinstance(turn, dict):
+                    new_parts = []
+                    for p in turn.get("parts", []):
+                        if isinstance(p, dict) and "text" in p:
+                            # Borrar [SISTEMA:...]
+                            c_text = re.sub(
+                                r"\[SISTEMA:.*?\]",
+                                "",
+                                p["text"],
+                                flags=re.IGNORECASE | re.DOTALL,
+                            )
+                            if c_text.strip():  # Solo si queda algo
+                                new_parts.append({"text": c_text})
+                        else:
+                            new_parts.append(p)
+
+                    if new_parts:
+                        clean_history.append({"role": turn["role"], "parts": new_parts})
+                else:
+                    # Si es objeto raro, lo dejamos pasar (habitualmente es dict de users.py)
+                    clean_history.append(turn)
+            except Exception:
+                clean_history.append(turn)
+
+        history = clean_history
 
         # 2. Construir User Message
         current_parts = []
@@ -136,8 +170,19 @@ class LLMEngine:
                         log.warning(f"⚠️ Tool desconocida solicitada: {fname}")
 
             if response.text and not has_execution:
-                final_text = response.text.replace("CONTEXTO:", "").strip()
-                if final_text:
+                # Clean System Hallucinations (Line-by-Line Aggressive)
+                lines = response.text.split("\n")
+                clean_lines = []
+                for line in lines:
+                    # Si la linea tiene [SISTEMA o es una narración de acción, la borramos
+                    if "[SISTEMA" in line or "Acción" in line and "ejecutada" in line:
+                        continue
+                    clean_lines.append(line)
+
+                text_clean = "\n".join(clean_lines)
+                final_text = text_clean.replace("CONTEXTO:", "").strip()
+
+                if final_text and len(final_text) > 1:
                     send_whatsapp_message(sender_id, final_text)
 
         # 5. Persistencia & CRM INTELLIGENCE 🧠

@@ -141,7 +141,109 @@ class MessageHandler:
                     log.error(f"Error triggering build: {e}")
             # ---------------------------------------------
 
-            if intent_result.action == "show_catalog":
+            # ---------------------------------------------
+            if text_body and text_body.strip().lower() == "/build":
+                try:
+                    from botyapp.services.whatsapp import send_whatsapp_message
+                    from botyapp.services.intelligence.product_image_matcher import (
+                        product_matcher,
+                    )
+                    from botyapp.services.catalog import sync_facebook_to_db
+                    from django.core.cache import cache
+                    import threading
+
+                    send_whatsapp_message(
+                        sender_id,
+                        "🔧 *Iniciando Mantenimiento Completo...* \n(3 Pasos: Sync FB -> DB -> Cache -> IA)\nEsto puede tardar.",
+                    )
+
+                    def run_full_build():
+                        # 1. Sync FB -> SQL
+                        sync_facebook_to_db(force=True)
+                        # 2. Clear Cache
+                        cache.clear()
+                        # 3. Reindex Images
+                        product_matcher.reindex_all_products()
+
+                    # Ejecutar en background para no bloquear
+                    threading.Thread(target=run_full_build).start()
+                    return
+                except Exception as e:
+                    log.error(f"Error triggering build: {e}")
+
+            # ---------------------------------------------
+            if text_body and text_body.strip().lower() == "/status":
+                try:
+                    from botyapp.models import ProductEmbedding
+                    from django.core.cache import cache
+                    from django.conf import settings
+                    from botyapp.services.whatsapp import send_whatsapp_message
+
+                    db_count = ProductEmbedding.objects.count()
+                    img_index_count = ProductEmbedding.objects.filter(
+                        image_embedding_vector__isnull=False
+                    ).count()
+                    cache_status = (
+                        "✅ Activo"
+                        if cache.get(f"catalog_products_{settings.CATALOG_ID}")
+                        else "⚠️ Vacío"
+                    )
+
+                    status_msg = (
+                        f"📊 *Estado del Sistema*\n\n"
+                        f"💾 *Base de Datos SQL:* {db_count} productos\n"
+                        f"👁️ *Imágenes Indexadas:* {img_index_count} productos\n"
+                        f"⚡ *Caché Rápida:* {cache_status}\n\n"
+                        f"Si 'Imágenes Indexadas' es 0, usa /build."
+                    )
+                    send_whatsapp_message(sender_id, status_msg)
+                    return
+                except Exception as e:
+                    log.error(f"Error checking status: {e}")
+            # ---------------------------------------------
+            # ---------------------------------------------
+            # ---------------------------------------------
+            # 6. INTERCEPTOR VISUAL ESCALABLE (AI-DRIVEN) 🧠
+            # Usamos el IntentClassifier (que ya usas y es escalable) para detectar intención de compra.
+            # Si la IA detecta que el usuario quiere ver productos, FORZAMOS la herramienta visual.
+            # Esto sirve para cualquier producto nuevo que agregues, sin hardcodear palabras.
+
+            forced_visual_intents = [
+                "ordering",
+                "product_inquiry",
+                "show_catalog",
+                "product_search",
+            ]
+
+            if intent_result.intent in forced_visual_intents:
+                log.info(
+                    f"🛑 Visual Intent Detected ({intent_result.intent}): {text_body}"
+                )
+
+                # Extraemos qué producto quiere ver (Si el classifier no lo da, usamos el texto completo)
+                # Intentamos limpiar un poco si es una frase larga
+                search_query = text_body
+
+                # Si tenemos entities del classifier, las usamos (escalabilidad real)
+                if hasattr(intent_result, "entities") and intent_result.entities:
+                    # Priorizamos la entidad detected (ej: usuario dice "muestrame pantalones rojos", entidad="pantalones rojos")
+                    search_query = " ".join(intent_result.entities)
+
+                try:
+                    from botyapp.services.catalog import search_and_send_products
+
+                    search_and_send_products(sender_id, search_query)
+
+                    CRMService.analyze_interaction(
+                        sender_id, text_body, intent_label="visual_forced_ai"
+                    )
+                    return
+                except Exception as e:
+                    log.error(f"Error in Scalable Visual Interceptor: {e}")
+
+                # ---------------------------------------------
+
+                # ---------------------------------------------
                 log.info(
                     f"✨ IntentClassifier: Catálogo activado ({intent_result.source})"
                 )

@@ -8,6 +8,8 @@ from logger import log
 class IntentResult:
     action: str
     confidence: float
+    intent: Optional[str] = None  # Semantic Intent (e.g. 'ordering', 'inquiry')
+    entities: Optional[List[str]] = None  # Extracted Entities (e.g. ['jeans', 'red'])
     payload: Optional[Dict[str, Any]] = None
     source: str = "unknown"  # 'deterministic', 'probabilistic'
 
@@ -66,15 +68,53 @@ class GenerativeStrategy(IntentStrategy):
     """
 
     def detect(self, text: str) -> Optional[IntentResult]:
-        # En este caso, el LLMEngine ya actúa como un agente completo que ejecuta herramientas.
-        # Para el propósito de "Clasificación Pura" antes de acción, podríamos pedirle JSON.
-        # PERO, dado que LLMEngine YA procesa y ejecuta, la estrategia "Generative"
-        # aquí es delegar la ejecución completa al engine si la determinista falla.
-        # Sin embargo, para cumplir con el patrón "Classifier returns Intent",
-        # marcaremos la acción como "USE_LLM_ENGINE".
-        return IntentResult(
-            action="USE_LLM_ENGINE", confidence=0.9, source="probabilistic"
-        )
+        """
+        Usa Gemini Flash Lite para clasificar intención y extraer entidades en JSON.
+        """
+        try:
+            from google import genai
+            from django.conf import settings
+            import json
+            import re
+
+            client = genai.Client(api_key=settings.IA_TOKEN)
+
+            prompt = (
+                "Clasifica la intención del usuario en JSON estricto. "
+                "Intents posibles: ordering, product_inquiry, support, unknown. "
+                "Entities: lista de productos mencionados. "
+                f"Mensaje: '{text}'"
+            )
+
+            response = client.models.generate_content(
+                model="models/gemini-flash-lite-latest",
+                contents=prompt,
+                config={"response_mime_type": "application/json"},
+            )
+
+            if response.text:
+                data = json.loads(response.text)
+                intent = data.get("intent", "unknown")
+                entities = data.get("entities", [])
+
+                # Mapear intents a acciones internas
+                action = "USE_LLM_ENGINE"
+                if intent in ["ordering", "product_inquiry"]:
+                    # El MessageHandler interceptará esto para mostrar catálogo
+                    pass
+
+                return IntentResult(
+                    action=action,
+                    confidence=0.9,
+                    source="generative_ai",
+                    intent=intent,
+                    entities=entities,
+                )
+
+        except Exception as e:
+            log.error(f"Generative Intent Error: {e}")
+
+        return IntentResult(action="USE_LLM_ENGINE", confidence=0.0, source="fallback")
 
 
 class IntentClassifier:

@@ -103,8 +103,8 @@ class ProductImageMatcher:
         for idx in top_3_indices:
             similarity = float(similarities[idx])
 
-            # Solo considerar si similitud >0.70
-            if similarity >= 0.70:
+            # Solo considerar si similitud >0.78 (Más estricto para evitar falsos positivos)
+            if similarity >= 0.78:
                 try:
                     product = ProductEmbedding.objects.get(
                         retailer_id=retailer_ids[idx]
@@ -140,7 +140,13 @@ class ProductImageMatcher:
             # Paso 1: Generar descripción visual
             # Usamos models/gemini-flash-lite-latest que es rápido y soporta imágenes
             # NOTA: En el nuevo SDK, se llama directamente a generate_content desde models
-            prompt = "Describe detalladamente este producto de ropa para búsqueda visual. Incluye color, tipo de prenda, estilo, características visuales. Sé conciso."
+            prompt = (
+                "Analiza esta prenda para un buscador de inventario exacto. "
+                "Describe paso a paso: 1. Tipo exacto de prenda. 2. Colores principales y secundarios. "
+                "3. DETALLES ÚNICOS DEL ESTAMPADO (flores grandes/chicas, formas geométricas, manchas, rayas). "
+                "4. Textura visible. "
+                "Tu objetivo es diferenciarla de otras prendas muy similares. Sé técnico y preciso."
+            )
 
             response = self.client.models.generate_content(
                 model="models/gemini-flash-lite-latest", contents=[prompt, part]
