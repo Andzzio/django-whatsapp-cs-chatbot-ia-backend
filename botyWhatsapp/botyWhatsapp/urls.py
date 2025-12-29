@@ -54,4 +54,9 @@ urlpatterns = [
         generate_embeddings_endpoint,
         name="generate_embeddings",
     ),
+    path(
+        "api/messages/<int:msg_id>/delete/",
+        botyapp.views.delete_message,
+        name="delete_message",
+    ),
 ]

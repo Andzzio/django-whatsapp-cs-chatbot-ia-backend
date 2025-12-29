@@ -319,3 +319,27 @@ def whatsapp_webhook(request):
             return JsonResponse({"status": "error"}, status=500)
 
     return HttpResponse("Method not allowed", status=405)
+
+
+@csrf_exempt
+def delete_message(request, msg_id):
+    """
+    Endpoint para borrar un mensaje por su ID interno.
+    Requiere token de autenticación del dashboard.
+    """
+    if request.method != "DELETE":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    token = request.headers.get("Authorization")
+    if token != settings.DASH_TOKEN:
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    try:
+        message = Message.objects.get(id=msg_id)
+        message.delete()
+        return JsonResponse({"status": "deleted"}, status=200)
+    except Message.DoesNotExist:
+        return JsonResponse({"error": "Message not found"}, status=404)
+    except Exception as e:
+        log.error(f"Error deleting message: {e}")
+        return JsonResponse({"error": str(e)}, status=500)
