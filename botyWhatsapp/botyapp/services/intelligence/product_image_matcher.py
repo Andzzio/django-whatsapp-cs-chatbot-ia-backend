@@ -103,8 +103,8 @@ class ProductImageMatcher:
         for idx in top_3_indices:
             similarity = float(similarities[idx])
 
-            # Solo considerar si similitud >0.78 (Más estricto para evitar falsos positivos)
-            if similarity >= 0.78:
+            # Solo considerar si similitud >0.85 (Modo Estricto solicitado por usuario)
+            if similarity >= 0.85:
                 try:
                     product = ProductEmbedding.objects.get(
                         retailer_id=retailer_ids[idx]
@@ -113,7 +113,7 @@ class ProductImageMatcher:
                         ProductMatch(
                             product=product,
                             confidence=similarity,
-                            is_certain=(similarity >= 0.85),  # >85% = casi seguro
+                            is_certain=(similarity >= 0.90),  # >90% = certeza absoluta
                         )
                     )
                 except ProductEmbedding.DoesNotExist:
@@ -137,19 +137,22 @@ class ProductImageMatcher:
             )
 
             # Paso 1: Generar descripción visual
-            # Paso 1: Generar descripción visual
             # Usamos models/gemini-flash-lite-latest que es rápido y soporta imágenes
             # NOTA: En el nuevo SDK, se llama directamente a generate_content desde models
             prompt = (
                 "Analiza esta prenda para un buscador de inventario exacto. "
-                "Describe paso a paso: 1. Tipo exacto de prenda. 2. Colores principales y secundarios. "
-                "3. DETALLES ÚNICOS DEL ESTAMPADO (flores grandes/chicas, formas geométricas, manchas, rayas). "
-                "4. Textura visible. "
-                "Tu objetivo es diferenciarla de otras prendas muy similares. Sé técnico y preciso."
+                "Actúa como un experto en moda. Describe este producto para búsqueda visual exacta. "
+                "IGNORA: Texto superpuesto, interfaz de app (TikTok/IG), emojis, personas. "
+                "FOCA: Tipo exacto de prenda (Diferencia CLAVE: ¿Es Palazzo normal o MAXI Palazzo ancho?), "
+                "Color principal/secundario, PATRÓN (flores, rayas, liso). Describe el corte y la caída."
             )
 
+            # Umbral de similitud estricto para evitar "productos nada que ver"
+            # Si no supera 0.82, mejor decir que no se encontró a mostrar basura.
+            self.SIMILARITY_THRESHOLD = 0.82
+
             response = self.client.models.generate_content(
-                model="models/gemini-flash-latest", contents=[prompt, part]
+                model="models/gemini-1.5-flash", contents=[prompt, part]
             )
             description = response.text if response.text else "Prenda de ropa"
 
