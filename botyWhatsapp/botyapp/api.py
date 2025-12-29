@@ -64,8 +64,19 @@ def sync_data(request):
                     ).count(),
                     "needs_human_attention": contact.needs_human_attention,
                     "history": msgs,
+                    "last_activity": (
+                        contact.messages.order_by("-timestamp")
+                        .first()
+                        .timestamp.isoformat()
+                        if contact.messages.exists()
+                        else contact.created_at.isoformat()
+                    ),
                 }
             )
+
+        # Ordenar por actividad reciente (descendente)
+        response_data.sort(key=lambda x: x.get("last_activity", ""), reverse=True)
+
         return JsonResponse({"contacts": response_data}, safe=False)
 
     return JsonResponse({"error": "Método no permitido"}, status=405)

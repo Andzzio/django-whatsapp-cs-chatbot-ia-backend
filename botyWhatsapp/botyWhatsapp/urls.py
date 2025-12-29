@@ -28,6 +28,7 @@ from botyapp.api import (
     send_product_to_contact,
     generate_embeddings_endpoint,
 )
+from botyapp.api_orders import create_order
 
 urlpatterns = [
     # path('admin/', admin.site.urls),
@@ -58,5 +59,10 @@ urlpatterns = [
         "api/messages/<int:msg_id>/delete/",
         botyapp.views.delete_message,
         name="delete_message",
+    ),
+    path(
+        "api/contacts/<str:phone>/create-order/",
+        create_order,
+        name="create_order",
     ),
 ]

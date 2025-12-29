@@ -81,10 +81,17 @@ class SmartMessageProcessor:
             )
 
             # Enviar menú de decisión
-            # "He recibido tu imagen. ¿Qué deseas hacer?"
+            # Mensaje mejorado solicitado por cliente
             send_button_catalog_agent(
                 contact.phone,
-                "📸 He recibido tu imagen.\n\nPara ayudarte mejor, por favor elige una opción:",
+                (
+                    "¡Hola! Gracias por enviarnos la foto.\n"
+                    "¡Es una prenda espectacular! ✨\n\n"
+                    "Queremos que tu experiencia de compra sea perfecta. "
+                    "Por favor, selecciona una opción para continuar:\n\n"
+                    "🛍️ *Ver Catálogo*: Compra de forma rápida y segura.\n"
+                    "👤 *Contactar Agente*: Recibe asesoría personalizada de nuestro equipo."
+                ),
             )
 
             # Opcional: Podríamos identificar el producto en background y guardarlo en caché
