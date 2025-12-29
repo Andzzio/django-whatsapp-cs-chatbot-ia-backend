@@ -26,6 +26,7 @@ from botyapp.api import (
     mark_messages_read,
     get_products_list,
     send_product_to_contact,
+    generate_embeddings_endpoint,
 )
 
 urlpatterns = [
@@ -47,5 +48,10 @@ urlpatterns = [
         "api/contacts/<str:phone>/send-product/",
         send_product_to_contact,
         name="send_product",
+    ),
+    path(
+        "api/generate-embeddings/",
+        generate_embeddings_endpoint,
+        name="generate_embeddings",
     ),
 ]

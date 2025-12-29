@@ -315,3 +315,106 @@ def send_product_to_contact(request, phone):
             return JsonResponse({"error": str(e)}, status=500)
 
     return JsonResponse({"error": "Method not allowed"}, status=405)
+
+
+@csrf_exempt
+def generate_embeddings_endpoint(request):
+    """
+    Endpoint para generar embeddings de productos bajo demanda.
+    Solo ejecutar una vez después del deploy inicial.
+    
+    Uso:
+    curl -X POST https://tu-app.onrender.com/api/generate-embeddings/ \
+      -H "Authorization: Bearer TU_DASH_TOKEN"
+    """
+    # Validar autenticación
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if token != settings.DASH_TOKEN:
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        from botyapp.services.intelligence.semantic_search import semantic_search
+        from botyapp.models import ProductEmbedding
+
+        # Sincronizar productos desde Meta Commerce
+        log.info("🚀 Iniciando vectorización de catálogo...")
+        products_dict = sync_catalog_products(settings.CATALOG_ID)
+
+        if not products_dict:
+            return JsonResponse(
+                {
+                    "status": "error",
+                    "message": "No se pudieron obtener productos del catálogo",
+                },
+                status=500,
+            )
+
+        vectorized = 0
+        skipped = 0
+        errors = 0
+
+        for retailer_id, product_data in products_dict.items():
+            try:
+                # Verificar si ya existe (evitar duplicados)
+                if ProductEmbedding.objects.filter(retailer_id=retailer_id).exists():
+                    skipped += 1
+                    continue
+
+                # Preparar texto para embedding
+                name = product_data.get("name", "")
+                description = product_data.get("description", "")
+                category = product_data.get("category", "")
+                search_text = f"{name} {description} {category}".strip().lower()
+
+                # Generar embedding con Gemini
+                embedding = semantic_search.generate_embedding(search_text)
+
+                if not embedding:
+                    log.warning(f"No se pudo generar embedding para: {name[:50]}")
+                    errors += 1
+                    continue
+
+                # Crear en base de datos
+                ProductEmbedding.objects.create(
+                    retailer_id=retailer_id,
+                    product_name=name,
+                    description=description,
+                    price=product_data.get("price"),
+                    category=category,
+                    embedding_vector=embedding,
+                    search_text=search_text,
+                    is_available=True,
+                    stock_quantity=10,
+                    last_synced=timezone.now(),
+                )
+
+                vectorized += 1
+
+                if vectorized % 10 == 0:
+                    log.info(f"Vectorizados: {vectorized}...")
+
+            except Exception as e:
+                log.error(f"Error procesando {retailer_id}: {e}")
+                errors += 1
+                continue
+
+        total_in_db = ProductEmbedding.objects.count()
+
+        log.info(f"✅ Vectorización completa: {vectorized} nuevos")
+
+        return JsonResponse(
+            {
+                "status": "success",
+                "products_vectorized": vectorized,
+                "products_skipped": skipped,
+                "errors": errors,
+                "total_in_database": total_in_db,
+            }
+        )
+
+    except Exception as e:
+        log.error(f"Error en generate_embeddings_endpoint: {e}")
+        return JsonResponse({"status": "error", "message": str(e)}, status=500)
