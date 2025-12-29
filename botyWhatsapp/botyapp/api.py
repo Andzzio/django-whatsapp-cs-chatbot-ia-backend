@@ -369,6 +369,24 @@ def generate_embeddings_endpoint(request):
                 category = product_data.get("category", "")
                 search_text = f"{name} {description} {category}".strip().lower()
 
+                # Parsear precio (viene como "S/40,00" o dict con 'amount')
+                price_value = None
+                price_raw = product_data.get("price")
+                if isinstance(price_raw, dict):
+                    # Formato dict: {'amount': '40.00', 'currency': 'PEN'}
+                    price_value = float(price_raw.get("amount", 0))
+                elif isinstance(price_raw, str):
+                    # Formato string: "S/40,00" -> 40.00
+                    try:
+                        price_clean = (
+                            price_raw.replace("S/", "").replace(",", ".").strip()
+                        )
+                        price_value = float(price_clean)
+                    except Exception:
+                        price_value = None
+                elif isinstance(price_raw, (int, float)):
+                    price_value = float(price_raw)
+
                 # Generar embedding con Gemini
                 embedding = semantic_search.generate_embedding(search_text)
 
@@ -382,7 +400,7 @@ def generate_embeddings_endpoint(request):
                     retailer_id=retailer_id,
                     product_name=name,
                     description=description,
-                    price=product_data.get("price"),
+                    price=price_value,
                     category=category,
                     embedding_vector=embedding,
                     search_text=search_text,
