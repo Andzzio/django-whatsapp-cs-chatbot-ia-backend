@@ -9,6 +9,12 @@ class Contact(models.Model):
     is_bot_active = models.BooleanField(default=True)
     bot_disabled_at = models.DateTimeField(null=True, blank=True)
 
+    # CRM Fields
+    tags = models.JSONField(default=list, blank=True)  # ["interesado_vestidos", "vip"]
+    lead_score = models.IntegerField(default=0)  # 0-100
+    last_intent = models.CharField(max_length=50, null=True, blank=True)
+    notes = models.TextField(blank=True)
+
 
 class Message(models.Model):
     contact = models.ForeignKey(

@@ -18,7 +18,7 @@ from .services.whatsapp import (
     send_image,
 )
 from .services.orders import process_order
-from .services.gemini import process_gemini_message
+from .services.message_handler import MessageHandler
 
 
 def health_check(request):
@@ -149,7 +149,7 @@ def whatsapp_webhook(request):
                                                 )
                                         log.debug("🌄 IMAGEN DETECTADA")
                                         threading.Thread(
-                                            target=process_gemini_message,
+                                            target=MessageHandler.process_incoming,
                                             args=(
                                                 sender_id,
                                                 "",  # Texto vacío inicial
@@ -189,7 +189,7 @@ def whatsapp_webhook(request):
                                         log.debug("🎙️ AUDIO DETECTADO")
 
                                         threading.Thread(
-                                            target=process_gemini_message,
+                                            target=MessageHandler.process_incoming,
                                             args=(
                                                 sender_id,
                                                 "",  # Texto vacío
@@ -287,7 +287,7 @@ def whatsapp_webhook(request):
                                         timestamp = message_event.get("timestamp")
 
                                         threading.Thread(
-                                            target=process_gemini_message,
+                                            target=MessageHandler.process_incoming,
                                             args=(
                                                 sender_id,
                                                 raw_text,

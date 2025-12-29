@@ -1,73 +1,36 @@
-import threading
-from django.core.cache import cache
-from logger import log
 from .whatsapp import send_whatsapp_message
 from botyapp.models import Contact
+from botyapp.core.session import SessionManager
+import threading
+from logger import log
 
-# Diccionario global para gestionar timers de re-enganche
+# Diccionario global para gestionar timers de re-enganche (legacy, se mantendrá en memoria por ahora)
 user_timers = {}
 
 
 def get_user_name(phone_number):
-    cache_key = f"Client_{phone_number}"
-    client_data = cache.get(cache_key)
-    if client_data and client_data.get("client_name"):
-        return client_data["client_name"]
-    else:
-        return "Cliente"
+    return SessionManager(phone_number).get_name()
 
 
 def save_user_data(phone_number, client_name=None, context=None, image_id=None):
-    cache_key = f"Client_{phone_number}"
-    client_data = cache.get(cache_key, {})
+    session = SessionManager(phone_number)
     if client_name:
-        client_data["client_name"] = client_name
+        session.set_name(client_name)
     if context:
-        client_data["context"] = context
+        session.update_history(context)
     if image_id:
-        client_data["image_id"] = image_id
-    client_data["phone_number"] = phone_number
+        session.set_context_image_id(image_id)
 
-    cache.set(cache_key, client_data, timeout=60 * 60 * 24 * 30)
-    log.debug(f"Cliente Guardado {client_data}")
-    return client_data
+    # Retornamos dict simulado por compatibilidad si alguien lo usa
+    return session._get_data()
 
 
 def get_context(phone_number):
-    cache_key = f"Client_{phone_number}"
-    client_data = cache.get(cache_key)
-    if client_data:
-        ctx = client_data.get("context")
-        # Si es una lista (nuevo formato), la devolvemos
-        if isinstance(ctx, list):
-            # Sanitize: Remove any text parts that start with [SISTEMA: to prevent leakage
-            clean_history = []
-            for turn in ctx:
-                if "parts" in turn:
-                    clean_parts = []
-                    for part in turn["parts"]:
-                        # Ensure part is a dict and has text
-                        if isinstance(part, dict) and "text" in part:
-                            if not part["text"].startswith("[SISTEMA:"):
-                                clean_parts.append(part)
-                        else:
-                            clean_parts.append(part)
-                    turn["parts"] = clean_parts
-                    clean_history.append(turn)
-            return clean_history
-        # Si es string (formato antiguo) o predeterminado, devolvemos lista vacía para resetear
-        return []
-    else:
-        return []
+    return SessionManager(phone_number).get_history()
 
 
 def get_image_id(phone_number):
-    cache_key = f"Client_{phone_number}"
-    client_data = cache.get(cache_key)
-    if client_data and client_data.get("image_id"):
-        return client_data["image_id"]
-    else:
-        return None
+    return SessionManager(phone_number).get_context_image_id()
 
 
 def cancel_timer(sender_id):
