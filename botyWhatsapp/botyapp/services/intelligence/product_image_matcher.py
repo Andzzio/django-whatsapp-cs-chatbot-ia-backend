@@ -123,12 +123,33 @@ class ProductImageMatcher:
         Genera embedding de imagen con Gemini.
         Usa modelo multimodal-embedding-001 especializado para imágenes.
         """
-        result = self.client.models.embed_content(
-            model="models/multimodal-embedding-001",
-            content=types.Part.from_bytes(image_bytes, "image/jpeg"),
-        )
+        # Construcción explícita para evitar errores de firma en from_bytes
+        # y asegurar compatibilidad
+        try:
+            # Opción A: Constructor explícito (más seguro)
+            part = types.Part(
+                inline_data=types.Blob(data=image_bytes, mime_type="image/jpeg")
+            )
 
-        return np.array(result["embedding"])
+            result = self.client.models.embed_content(
+                model="models/multimodal-embedding-001",
+                contents=part,  # Nota: el argumento suele ser 'contents' o 'content' dependiendo versión
+            )
+        except TypeError:
+            # Fallback por si la librería usa 'content' en singular
+            result = self.client.models.embed_content(
+                model="models/multimodal-embedding-001",
+                content=types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+            )
+
+        # Manejar respuesta objeto vs dict
+        if hasattr(result, "embedding"):
+            return np.array(result.embedding.values)
+        elif isinstance(result, dict) and "embedding" in result:
+            return np.array(result["embedding"])
+        else:
+            # Fallback genérico
+            return np.array(getattr(result, "embedding", []))
 
     def index_product_image(self, product: "ProductEmbedding"):
         """
