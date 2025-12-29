@@ -28,7 +28,7 @@ class LLMEngine:
     def _get_gemini_tools(self):
         return [t.to_gemini_tool() for t in self.tools]
 
-    def _build_system_instruction(self):
+    def _build_system_instruction(self, crm_context=""):
         # El contexto del catálogo ahora se podría inyectar dinámicamente,
         # pero por compatibilidad traemos la función legacy o la inyectamos aquí.
         # Para Clean Arch, idealmente el engine no depende de 'catalog.py' directamente para el prompt,
@@ -42,7 +42,9 @@ class LLMEngine:
             "--- DIRECTRICES DE USO DE HERRAMIENTAS (CRÍTICO) ---\n"
             "1. NO NARRES TUS ACCIONES: Nunca escribas texto como '[SISTEMA:...]' o 'He ejecutado...'.\n"
             "2. USA LA HERRAMIENTA NATIVA: Si aplica, GENERA UN FUNCTION CALL.\n"
-            "3. ACCIÓN INMEDIATA: Ante intención clara, LLAMA A LA FUNCIÓN.\n"
+            "3. PRIORIDAD AL CATÁLOGO: Si el usuario muestra interés en ver, comprar, buscar, modelos, ropa, prendas o fotos, DEBES llamar a 'show_catalog' INMEDIATAMENTE. No preguntes, solo muestra.\n"
+            "--- PERFIL DEL USUARIO (CRM) ---\n"
+            f"{crm_context}\n"
             "--- CONOCIMIENTO DEL NEGOCIO ---\n"
             f"{catalog_context}"
         )
@@ -81,13 +83,29 @@ class LLMEngine:
         if len(gemini_input) > 20:
             gemini_input = gemini_input[-20:]
 
-        # 3. Llamada al Modelo
+        # 3. Preparar Contexto de Ventas (CRM)
+        crm_info = ""
+        try:
+            from botyapp.models import Contact
+
+            contact = Contact.objects.get(phone=sender_id)
+            crm_info = (
+                f"CLIENTE: {contact.first_name or 'Usuario'}\n"
+                f"TAGS: {contact.tags}\n"
+                f"SCORE: {contact.lead_score}\n"
+                f"ULTIMA INTENCION: {contact.last_intent}\n"
+                "Instrucción de Venta: Si es VIP (>50 puntos) ofrece trato premium. Si tiene 'interes_catalogo', enfócate en cerrar venta."
+            )
+        except Exception:
+            pass
+
+        # 4. Llamada al Modelo
         try:
             response = self.client.models.generate_content(
                 model="models/gemini-flash-lite-latest",
                 contents=gemini_input,
                 config={
-                    "system_instruction": self._build_system_instruction(),
+                    "system_instruction": self._build_system_instruction(crm_info),
                     "tools": self._get_gemini_tools(),
                 },
             )

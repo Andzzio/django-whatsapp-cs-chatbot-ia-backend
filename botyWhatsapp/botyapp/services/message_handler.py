@@ -91,36 +91,44 @@ class MessageHandler:
                 except Exception:
                     pass
 
-            text_body = raw_text.lower().strip()
+            # 6. ENTERPRISE INTENT CLASSIFICATION SYSTEM
+            # "Google-grade" Strategy Pattern: Deterministic -> Probabilistic
+            from botyapp.services.intent.classifier import intent_classifier
+            from botyapp.services.crm_service import CRMService
 
-            # 6. 🚀 FAST PATH: Intenciones Directas (Sin gastar tokens LLM)
-            fast_intent_keywords = [
-                "ver productos",
-                "ver catalogo",
-                "ver catálogo",
-                "el catalogo",
-                "el catálogo",
-                "ver prendas",
-                "ver ropa",
-                "muestrame productos",
-            ]
+            intent_result = intent_classifier.classify(raw_text)
+            text_body = raw_text.lower().strip()  # Used for CRM analysis if needed
 
-            if len(text_body) < 50 and any(
-                k in text_body for k in fast_intent_keywords
-            ):
-                log.info(f"⚡ Fast Path: Catálogo solicitado por {sender_id}")
+            if intent_result.action == "show_catalog":
+                log.info(
+                    f"✨ IntentClassifier: Catálogo activado ({intent_result.source})"
+                )
                 send_catalog_message(
                     sender_id, "¡Claro! 🛍️ Aquí tienes nuestro catálogo completo:"
                 )
-                from botyapp.services.crm_service import CRMService
-
                 CRMService.analyze_interaction(
-                    sender_id, text_body, tool_used="show_catalog"
+                    sender_id, text_body, intent_label="show_catalog"
                 )
                 return
 
-            # 7. Delegar al Cerebro (LLM Engine)
-            # El engine maneja historial, timers, llamadas a tools y sus respuestas.
+            elif intent_result.action == "contact_support":
+                log.info(
+                    f"✨ IntentClassifier: Soporte Humano activado ({intent_result.source})"
+                )
+                from botyapp.services.whatsapp import send_contact_message
+
+                send_contact_message(sender_id)
+                CRMService.analyze_interaction(
+                    sender_id, text_body, intent_label="contact_support"
+                )
+                return
+
+            # 7. Delegar al Cerebro (LLM Engine) - Probabilistic Fallback
+            # Si el clasificador determinista no encontró nada, o la estrategia decidió usar LLM.
+
+            # Log de transición
+            log.debug(f"🤖 Delegando a LLM Engine (Action: {intent_result.action})")
+
             llm_engine.process_message(
                 sender_id=sender_id,
                 text_body=raw_text,
