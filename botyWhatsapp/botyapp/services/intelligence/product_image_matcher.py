@@ -137,20 +137,21 @@ class ProductImageMatcher:
             )
 
             # Paso 1: Generar descripción visual
-            # Usamos gemini-1.5-flash que es rápido y soporta imágenes
-            model = self.client.models.GenerativeModel("gemini-1.5-flash")
-
-            # Construcción segura del contenido
+            # Paso 1: Generar descripción visual
+            # Usamos models/gemini-flash-lite-latest que es rápido y soporta imágenes
+            # NOTA: En el nuevo SDK, se llama directamente a generate_content desde models
             prompt = "Describe detalladamente este producto de ropa para búsqueda visual. Incluye color, tipo de prenda, estilo, características visuales. Sé conciso."
 
-            response = model.generate_content([prompt, part])
+            response = self.client.models.generate_content(
+                model="models/gemini-flash-lite-latest", contents=[prompt, part]
+            )
             description = response.text if response.text else "Prenda de ropa"
 
             # Paso 2: Embeddings de texto (text-embedding-004 es el standard actual)
             # Normalizamos el texto (strip, etc)
             embedding_result = self.client.models.embed_content(
                 model="models/text-embedding-004",
-                content=description,
+                contents=description,
             )
 
             # Manejo de respuesta
@@ -161,7 +162,8 @@ class ProductImageMatcher:
             elif isinstance(embedding_result, dict) and "embedding" in embedding_result:
                 return np.array(embedding_result["embedding"])
             else:
-                return np.array(getattr(embedding_result, "embedding", []))
+                # Last resort fallback
+                return np.array(getattr(embedding_result, "embeddings", [[]])[0].values)
 
         except Exception as e:
             log.error(f"Error generating visual embedding: {e}")
