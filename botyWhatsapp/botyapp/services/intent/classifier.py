@@ -75,7 +75,6 @@ class GenerativeStrategy(IntentStrategy):
             from google import genai
             from django.conf import settings
             import json
-            import re
 
             client = genai.Client(api_key=settings.IA_TOKEN)
 
@@ -87,7 +86,7 @@ class GenerativeStrategy(IntentStrategy):
             )
 
             response = client.models.generate_content(
-                model="models/gemini-flash-lite-latest",
+                model="models/gemini-flash-latest",
                 contents=prompt,
                 config={"response_mime_type": "application/json"},
             )
