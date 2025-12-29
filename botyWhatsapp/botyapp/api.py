@@ -402,6 +402,9 @@ def generate_embeddings_endpoint(request):
                     description=description,
                     price=price_value,
                     category=category,
+                    image_url=product_data.get(
+                        "image_url"
+                    ),  # NUEVO: Guardar URL de imagen
                     embedding_vector=embedding,
                     search_text=search_text,
                     is_available=True,

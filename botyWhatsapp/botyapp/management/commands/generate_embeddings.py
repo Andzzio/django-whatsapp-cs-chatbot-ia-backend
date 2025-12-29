@@ -92,6 +92,9 @@ class Command(BaseCommand):
                         "description": description,
                         "price": product_data.get("price"),
                         "category": category,
+                        "image_url": product_data.get(
+                            "image_url"
+                        ),  # NUEVO: Guardar URL de imagen
                         "embedding_vector": embedding,
                         "search_text": search_text,
                         "is_available": True,

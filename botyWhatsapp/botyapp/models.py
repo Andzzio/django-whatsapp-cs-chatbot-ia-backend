@@ -53,6 +53,9 @@ class ProductEmbedding(models.Model):
     description = models.TextField(blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2, null=True)
     category = models.CharField(max_length=200, blank=True)
+    image_url = models.URLField(
+        max_length=500, blank=True, null=True
+    )  # URL de imagen del producto
 
     # Vector embedding (JSON storage para flexibilidad)
     # En producción considerar pgvector para PostgreSQL
