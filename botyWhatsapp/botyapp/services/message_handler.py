@@ -18,7 +18,13 @@ class MessageHandler:
 
     @staticmethod
     def process_incoming(
-        sender_id, raw_text, timestamp, message_id, media_id=None, media_type="image"
+        sender_id,
+        raw_text,
+        timestamp,
+        message_id,
+        media_id=None,
+        media_type="image",
+        reply_to_message_id=None,
     ):
         try:
             log.debug(f"📨 MessageHandler: Procesando mensaje de {sender_id}")
@@ -38,6 +44,18 @@ class MessageHandler:
                 )
                 return
 
+            # Lookup Reply Original Message
+            reply_to_msg = None
+            if reply_to_message_id:
+                try:
+                    reply_to_msg = Message.objects.filter(
+                        message_id=reply_to_message_id
+                    ).first()
+                    if reply_to_msg:
+                        log.debug(f"🔗 Vinculando respuesta a: {reply_to_message_id}")
+                except Exception as e:
+                    log.warning(f"⚠️ Error buscando mensaje original: {e}")
+
             # 4. Guardar Mensaje en BD (Solo Texto se guarda aquí, multimedia lo guarda views.py)
             # views.py ya guarda Image/Audio antes de llamar al hilo, pero NO guarda texto.
             # Debemos detectar si es texto puro para guardarlo.
@@ -49,6 +67,7 @@ class MessageHandler:
                         text=raw_text.strip(),
                         is_bot=False,
                         message_id=message_id,
+                        reply_to=reply_to_msg,
                     )
                 except IntegrityError:
                     log.warning(f"🛑 Mensaje duplicado en DB: {message_id}")

@@ -286,6 +286,11 @@ def whatsapp_webhook(request):
                                         raw_text = message_event["text"]["body"]
                                         timestamp = message_event.get("timestamp")
 
+                                        original_wamid = None
+                                        context = message_event.get("context")
+                                        if context and "id" in context:
+                                            original_wamid = context["id"]
+
                                         threading.Thread(
                                             target=MessageHandler.process_incoming,
                                             args=(
@@ -293,6 +298,9 @@ def whatsapp_webhook(request):
                                                 raw_text,
                                                 timestamp,
                                                 message_id,
+                                                None,  # media_id
+                                                "image",  # default media_type
+                                                original_wamid,  # reply_to_message_id
                                             ),
                                         ).start()
                                         continue
