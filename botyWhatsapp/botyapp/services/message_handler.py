@@ -97,7 +97,28 @@ class MessageHandler:
             from botyapp.services.crm_service import CRMService
 
             intent_result = intent_classifier.classify(raw_text)
-            text_body = raw_text.lower().strip()  # Used for CRM analysis if needed
+            text_body = raw_text.lower().strip()
+
+            # --- COMANDO DE EMERGENCIA: RESET HISTORIAL ---
+            if text_body == "/reset" or text_body == "reset":
+                log.info(f"🧹 Clearing history for {sender_id}")
+                try:
+                    # Borrar mensajes antiguos
+                    Message.objects.filter(contact=contact_obj).delete()
+                    # Resetear estado conversacional
+                    if hasattr(contact_obj, "conversation_state"):
+                        contact_obj.conversation_state.current_stage = "initial"
+                        contact_obj.conversation_state.save()
+
+                    from botyapp.services.whatsapp import send_whatsapp_message
+
+                    send_whatsapp_message(
+                        sender_id, "🧹 *Historial reseteado.* Empecemos de nuevo. 👋"
+                    )
+                    return
+                except Exception as e:
+                    log.error(f"Error resetting history: {e}")
+            # ---------------------------------------------
 
             if intent_result.action == "show_catalog":
                 log.info(

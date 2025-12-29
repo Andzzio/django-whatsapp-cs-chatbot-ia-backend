@@ -87,6 +87,9 @@ class ProductImageMatcher:
             )
 
         # Cosine similarity batch (súper rápido con NumPy)
+        if np.all(query_embedding == 0):
+            return []
+
         similarities = np.dot(embeddings_matrix, query_embedding) / (
             np.linalg.norm(embeddings_matrix, axis=1) * np.linalg.norm(query_embedding)
         )
@@ -120,36 +123,50 @@ class ProductImageMatcher:
 
     def _get_image_embedding(self, image_bytes: bytes) -> np.ndarray:
         """
-        Genera embedding de imagen con Gemini.
-        Usa modelo multimodal-embedding-001 especializado para imágenes.
+        Genera embedding de imagen INDIRECTO.
+        Estrategia (Workaround robusto):
+        1. Usar Gemini 1.5 Flash para describir la imagen en detalle.
+        2. Generar embedding de texto de esa descripción.
+
+        Esto evita errores 404 con modelos experimentales como multimodal-embedding-001.
         """
-        # Construcción explícita para evitar errores de firma en from_bytes
-        # y asegurar compatibilidad
         try:
             # Opción A: Constructor explícito (más seguro)
             part = types.Part(
                 inline_data=types.Blob(data=image_bytes, mime_type="image/jpeg")
             )
 
-            result = self.client.models.embed_content(
-                model="models/multimodal-embedding-001",
-                contents=part,  # Nota: el argumento suele ser 'contents' o 'content' dependiendo versión
-            )
-        except TypeError:
-            # Fallback por si la librería usa 'content' en singular
-            result = self.client.models.embed_content(
-                model="models/multimodal-embedding-001",
-                content=types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+            # Paso 1: Generar descripción visual
+            # Usamos gemini-1.5-flash que es rápido y soporta imágenes
+            model = self.client.models.GenerativeModel("gemini-1.5-flash")
+
+            # Construcción segura del contenido
+            prompt = "Describe detalladamente este producto de ropa para búsqueda visual. Incluye color, tipo de prenda, estilo, características visuales. Sé conciso."
+
+            response = model.generate_content([prompt, part])
+            description = response.text if response.text else "Prenda de ropa"
+
+            # Paso 2: Embeddings de texto (text-embedding-004 es el standard actual)
+            # Normalizamos el texto (strip, etc)
+            embedding_result = self.client.models.embed_content(
+                model="models/text-embedding-004",
+                content=description,
             )
 
-        # Manejar respuesta objeto vs dict
-        if hasattr(result, "embedding"):
-            return np.array(result.embedding.values)
-        elif isinstance(result, dict) and "embedding" in result:
-            return np.array(result["embedding"])
-        else:
-            # Fallback genérico
-            return np.array(getattr(result, "embedding", []))
+            # Manejo de respuesta
+            if hasattr(embedding_result, "embedding"):
+                return np.array(
+                    embedding_result.embedding.values or embedding_result.embedding
+                )
+            elif isinstance(embedding_result, dict) and "embedding" in embedding_result:
+                return np.array(embedding_result["embedding"])
+            else:
+                return np.array(getattr(embedding_result, "embedding", []))
+
+        except Exception as e:
+            log.error(f"Error generating visual embedding: {e}")
+            # Retornar vector de ceros para no romper
+            return np.zeros(768)
 
     def index_product_image(self, product: "ProductEmbedding"):
         """
