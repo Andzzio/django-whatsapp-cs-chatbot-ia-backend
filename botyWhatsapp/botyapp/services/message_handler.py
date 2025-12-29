@@ -123,18 +123,67 @@ class MessageHandler:
                 )
                 return
 
-            # 7. Delegar al Cerebro (LLM Engine) - Probabilistic Fallback
-            # Si el clasificador determinista no encontró nada, o la estrategia decidió usar LLM.
+            # 7. SALES INTELLIGENCE SYSTEM (Autonomous Sales Bot)
+            # Procesar con SalesFlow para manejo inteligente de ventas
+            log.debug("🤖 Procesando con Sales Intelligence System")
 
-            # Log de transición
-            log.debug(f"🤖 Delegando a LLM Engine (Action: {intent_result.action})")
+            try:
+                from botyapp.services.dialogue.sales_flow import SalesFlow
 
-            llm_engine.process_message(
-                sender_id=sender_id,
-                text_body=raw_text,
-                media_id=media_id,
-                media_type=media_type,
-            )
+                # Generar respuesta base con LLM
+                llm_response = llm_engine._generate_smart_response(
+                    sender_id, raw_text, media_id, media_type
+                )
+
+                # Procesar con SalesFlow para enriquecer
+                sales_flow = SalesFlow(contact_obj)
+                sales_result = sales_flow.process_message(raw_text, llm_response)
+
+                # Usar respuesta enriquecida (con objeciones/cierre)
+                final_response = sales_result.get("response", llm_response)
+
+                # Enviar respuesta
+                from botyapp.services.whatsapp import send_whatsapp_message
+
+                send_whatsapp_message(sender_id, final_response)
+
+                # Guardar respuesta del bot en BD
+                Message.objects.create(
+                    contact=contact_obj,
+                    text=final_response,
+                    is_bot=True,
+                )
+
+                # Mostrar productos si el sistema lo recomienda
+                if sales_result.get("should_show_products"):
+                    from botyapp.services.whatsapp import send_product_message
+                    from django.conf import settings
+
+                    for product in sales_result.get("products", [])[:5]:
+                        send_product_message(
+                            sender_id, product.retailer_id, settings.CATALOG_ID
+                        )
+
+                # Análisis CRM
+                CRMService.analyze_interaction(
+                    sender_id,
+                    text_body,
+                    intent_label=sales_result.get("action_taken", "sales_flow"),
+                )
+
+                log.info(
+                    f"✅ Sales Intelligence: {sales_result.get('action_taken', 'processed')}"
+                )
+
+            except Exception as e:
+                log.error(f"⚠️ Error en SalesFlow, fallback a LLM: {e}")
+                # Fallback: usar LLM normal si falla SalesFlow
+                llm_engine.process_message(
+                    sender_id=sender_id,
+                    text_body=raw_text,
+                    media_id=media_id,
+                    media_type=media_type,
+                )
 
         except Exception as e:
             log.error(f"❌ Error CRÍTICO en MessageHandler: {e}")

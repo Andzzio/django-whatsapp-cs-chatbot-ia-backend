@@ -21,7 +21,7 @@ class SemanticSearch:
     CACHE_TTL = 3600  # 1 hora
 
     def __init__(self):
-        genai.configure(api_key=settings.GEMINI_API_KEY)
+        genai.configure(api_key=settings.IA_TOKEN)
         self.model = genai.GenerativeModel("gemini-pro")
 
     def generate_embedding(self, text: str) -> List[float]:

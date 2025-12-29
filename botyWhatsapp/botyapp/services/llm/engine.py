@@ -165,7 +165,71 @@ class LLMEngine:
                     phone_number=sender_id, context=gemini_input + [model_turn]
                 )
         except Exception as e:
-            log.error(f"Error saving context: {e}")
+            log.error(f"❌ Error actualizando conversación: {e}")
+
+    def _generate_smart_response(
+        self, sender_id, text_body, media_id=None, media_type="image"
+    ):
+        """
+        Genera respuesta del LLM sin enviarla (para SalesFlow).
+        Retorna solo el texto de la respuesta.
+        """
+        history = get_context(sender_id)
+        if not isinstance(history, list):
+            history = []
+
+        # Construir mensaje
+        current_parts = []
+        if media_id:
+            media_url = get_whatsapp_media_url(media_id)
+            if media_type == "image" and media_url:
+                img_bytes = download_and_optimize_image(media_url)
+                if img_bytes:
+                    current_parts.append(
+                        types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
+                    )
+                    if not text_body:
+                        text_body = "Describe esta imagen."
+
+        current_parts.append({"text": text_body})
+        user_turn = {"role": "user", "parts": current_parts}
+
+        gemini_input = history + [user_turn]
+        if len(gemini_input) > 20:
+            gemini_input = gemini_input[-20:]
+
+        # CRM
+        crm_info = ""
+        try:
+            from botyapp.models import Contact
+
+            contact = Contact.objects.get(phone=sender_id)
+            crm_info = (
+                f"CLIENTE: {contact.name}\\n"
+                f"TAGS: {contact.tags}\\n"
+                f"SCORE: {contact.lead_score}\\n"
+            )
+        except Exception:
+            pass
+
+        # Generar
+        try:
+            response = self.client.models.generate_content(
+                model="models/gemini-flash-lite-latest",
+                contents=gemini_input,
+                config={
+                    "system_instruction": self._build_system_instruction(crm_info),
+                    "tools": self._get_gemini_tools(),
+                },
+            )
+
+            if response and hasattr(response, "text"):
+                return response.text
+            else:
+                return "¿En qué puedo ayudarte?"
+        except Exception as e:
+            log.error(f"Error generando respuesta: {e}")
+            return "Disculpa, hubo un error. ¿Puedes repetir?"
 
         # 6. Timer
         start_timer(sender_id)
