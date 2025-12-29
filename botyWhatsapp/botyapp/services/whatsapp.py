@@ -7,7 +7,7 @@ from logger import log
 from botyapp.models import Contact, Message
 
 
-def send_whatsapp_message(receptor_wsp_id, text_answer):
+def send_whatsapp_message(receptor_wsp_id, text_answer, reply_to_message_id=None):
     headers = {
         "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
         "Content-Type": "application/json",
@@ -20,6 +20,10 @@ def send_whatsapp_message(receptor_wsp_id, text_answer):
             "body": text_answer,
         },
     }
+
+    if reply_to_message_id:
+        data["context"] = {"message_id": reply_to_message_id}
+
     try:
         response = requests.post(
             settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
@@ -30,8 +34,20 @@ def send_whatsapp_message(receptor_wsp_id, text_answer):
         try:
             contact_obj = Contact.objects.get(phone=receptor_wsp_id)
             wamid = res_json["messages"][0]["id"] if "messages" in res_json else None
+
+            # Buscamos el objeto mensaje padre si existe
+            reply_to_obj = None
+            if reply_to_message_id:
+                reply_to_obj = Message.objects.filter(
+                    message_id=reply_to_message_id
+                ).first()
+
             Message.objects.create(
-                contact=contact_obj, text=text_answer, is_bot=True, message_id=wamid
+                contact=contact_obj,
+                text=text_answer,
+                is_bot=True,
+                message_id=wamid,
+                reply_to=reply_to_obj,
             )
         except Contact.DoesNotExist:
             pass

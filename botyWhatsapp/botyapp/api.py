@@ -10,6 +10,7 @@ from .views import send_whatsapp_message
 from django.core.cache import cache
 from .services.catalog import sync_catalog_products
 from .services.whatsapp import send_product_message
+from logger import log
 
 
 @csrf_exempt
@@ -211,10 +212,24 @@ def send_message_to_contact(request, phone):
 
             data = json.loads(request.body)
             text = data.get("text")
+            reply_to_db_id = data.get("reply_to_id")  # ID numérico de la DB (Django)
+
             if not text or text.strip() == "":
                 return JsonResponse({"error": "Text Empty"}, status=400)
-            send_whatsapp_message(phone, text)
-            return JsonResponse({"status": "success", "message": "sent"})
+
+            wamid_context = None
+            if reply_to_db_id:
+                try:
+                    # Buscamos el mensaje en la DB para obtener el WAMID real (necesario para la API)
+                    original_msg = Message.objects.get(id=reply_to_db_id)
+                    wamid_context = original_msg.message_id
+                    log.debug(
+                        f"Replying to DB_ID:{reply_to_db_id} -> WAMID:{wamid_context}"
+                    )
+                except Message.DoesNotExist:
+                    log.warning(f"Reply ID {reply_to_db_id} not found in DB.")
+
+            send_whatsapp_message(phone, text, reply_to_message_id=wamid_context)
             return JsonResponse({"status": "success", "message": "sent"})
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
