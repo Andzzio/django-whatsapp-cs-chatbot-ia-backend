@@ -35,11 +35,13 @@ def create_order(request, phone):
             return JsonResponse({"error": "No items provided"}, status=400)
 
         # Crear Orden PENDING
+        from decimal import Decimal
+
         order = Order.objects.create(
             contact=contact,
             status="PENDING",
-            shipping_cost=data.get("shipping_cost", 0),
-            discount=data.get("discount", 0),
+            shipping_cost=Decimal(str(data.get("shipping_cost", 0))),
+            discount=Decimal(str(data.get("discount", 0))),
         )
 
         for item in items:
@@ -54,11 +56,13 @@ def create_order(request, phone):
             retailer_id = str(retailer_id)[:190]  # Evitar overflow
 
             # Parseo seguro de precio
+            from decimal import Decimal
+
             try:
                 raw_price = item.get("unit_price", 0) or item.get("price", 0)
-                price_val = float(raw_price)
-            except (ValueError, TypeError):
-                price_val = 0.0
+                price_val = Decimal(str(raw_price))
+            except (ValueError, TypeError, Exception):
+                price_val = Decimal("0.0")
 
             # Get or Create seguro con Truncamiento
             name_val = str(item.get("name", "Producto Desconocido"))[:190]
