@@ -17,7 +17,7 @@ Including another URLconf
 
 from django.urls import path
 import botyapp.views
-from botyapp import api, api_orders, api_snippets
+from botyapp import api, api_orders, api_snippets, api_orders_list
 
 urlpatterns = [
     # path('admin/', admin.site.urls),
@@ -67,6 +67,13 @@ urlpatterns = [
         "api/contacts/<str:phone>/create-order/",
         api_orders.create_order,
         name="create_order",
+    ),
+    # Orders Management
+    path("api/orders/", api_orders_list.get_orders_list, name="get_orders"),
+    path(
+        "api/orders/<int:order_id>/status/",
+        api_orders_list.update_order_status,
+        name="update_order_status",
     ),
     # --- DASHBOARD & SNIPPETS V2 ---
     path("api/dashboard-stats/", api.get_dashboard_stats, name="dashboard_stats"),
