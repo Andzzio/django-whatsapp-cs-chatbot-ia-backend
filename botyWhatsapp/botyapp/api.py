@@ -652,6 +652,45 @@ def send_product_to_contact(request, phone):
 
 
 @csrf_exempt
+def send_catalog_to_contact(request, phone):
+    token = request.headers.get("Authorization")
+    if token != settings.DASH_TOKEN:
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    if request.method == "POST":
+        try:
+            contact = Contact.objects.get(phone=phone)
+
+            # Limpieza automática de alerta
+            if contact.needs_human_attention:
+                contact.needs_human_attention = False
+                contact.save()
+
+            # Enviar catálogo completo usando servicio existente
+            from botyapp.services.whatsapp import send_catalog_message
+
+            send_catalog_message(phone, "¡Aquí está nuestro catálogo completo! 🛍️✨")
+
+            # Registrar en BD como mensaje del bot
+            Message.objects.create(
+                contact=contact,
+                text="📂 Catálogo enviado",
+                is_bot=True,
+                message_type="catalog",
+            )
+
+            return JsonResponse({"status": "success"})
+
+        except Contact.DoesNotExist:
+            return JsonResponse({"error": "Contact not found"}, status=404)
+        except Exception as e:
+            log.error(f"Error sending catalog: {e}")
+            return JsonResponse({"error": str(e)}, status=500)
+
+    return JsonResponse({"error": "Method not allowed"}, status=405)
+
+
+@csrf_exempt
 def generate_embeddings_endpoint(request):
     """
     Endpoint para generar embeddings de productos bajo demanda.

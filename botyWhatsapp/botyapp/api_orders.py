@@ -1,7 +1,7 @@
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
-from .models import Contact, Order, OrderItem, ProductEmbedding, Message
+from .models import Contact, Order, OrderItem, ProductEmbedding
 import json
 from logger import log
 
@@ -91,38 +91,21 @@ def create_order(request, phone):
 
         order.calculate_totals()
 
-        # Generar Mensaje de Confirmación en el Chat (Visible para usuario y agente)
-        total_str = f"S/{order.total_amount:.2f}"
-        items_summary = "\n".join(
-            [f"- {i.get('quantity')}x {i.get('name')}" for i in items]
-        )
-
-        lines = [
-            f"🧾 *Pedido Generado #{order.id}*",
-            "",
-            items_summary,
-            "",
-        ]
-
-        if order.shipping_cost > 0:
-            lines.append(f"🚚 Envío: S/{order.shipping_cost:.2f}")
-
-        if order.discount > 0:
-            lines.append(f"🏷️ Descuento: -S/{order.discount:.2f}")
-
-        lines.append(f"💰 *Total: {total_str}*")
-
-        message_text = "\n".join(lines)
-
-        Message.objects.create(
-            contact=contact,
-            text=message_text,
-            is_bot=True,  # Lo marca como enviado por el sistema
-            message_type="text",  # O 'order_summary' si quisieras UI especial en Flutter
-        )
+        # No generamos mensaje de texto aquí. El frontend se encarga de la presentación.
+        # Solo devolvemos la data estructurada.
 
         return JsonResponse(
-            {"status": "success", "order_id": order.id, "total": order.total_amount}
+            {
+                "status": "success",
+                "order": {
+                    "id": order.id,
+                    "total": float(order.total_amount),
+                    "subtotal": float(order.subtotal),
+                    "shipping": float(order.shipping_cost),
+                    "discount": float(order.discount),
+                    "items": items,  # Ya contiene quantity, name, price
+                },
+            }
         )
 
     except Contact.DoesNotExist:

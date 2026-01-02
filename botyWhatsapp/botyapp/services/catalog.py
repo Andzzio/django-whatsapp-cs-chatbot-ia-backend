@@ -68,11 +68,28 @@ def sync_catalog_products(catalog_id):
                             return 0.0
                         import re
 
-                        # Extraer solo números y punto decimal
-                        nums = re.findall(r"[\d\.]+", str(p_str))
-                        if nums:
-                            return float(nums[0])
-                        return 0.0
+                        # Mantener solo dígitos, puntos y comas
+                        clean = re.sub(r"[^\d.,]", "", str(p_str))
+                        if not clean:
+                            return 0.0
+
+                        # Lógica para detectar separador decimal
+                        if "," in clean and "." in clean:
+                            # Caso mixto: 1,200.50 o 1.200,50
+                            if clean.rfind(",") > clean.rfind("."):
+                                # Coma al final (1.200,50) -> Decimal es coma
+                                clean = clean.replace(".", "").replace(",", ".")
+                            else:
+                                # Punto al final (1,200.50) -> Decimal es punto, quitar comas
+                                clean = clean.replace(",", "")
+                        elif "," in clean:
+                            # Solo comas: 49,99 -> 49.99
+                            clean = clean.replace(",", ".")
+
+                        try:
+                            return float(clean)
+                        except ValueError:
+                            return 0.0
 
                     price_val = parse_price(raw_price)
                     if raw_sale_price:
