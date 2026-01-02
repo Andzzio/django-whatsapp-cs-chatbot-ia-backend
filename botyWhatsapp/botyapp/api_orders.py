@@ -84,8 +84,8 @@ def create_order(request, phone):
                 order=order,
                 product=product_embedding,
                 quantity=item.get("quantity", 1),
-                unit_price=item.get("unit_price", product_embedding.price) or 0.0,
-                product_name=item.get("name", product_embedding.product_name),
+                unit_price=price_val,
+                product_name=name_val,
                 product_image_url=item.get("image_url", product_embedding.image_url),
             )
 
@@ -97,11 +97,22 @@ def create_order(request, phone):
             [f"- {i.get('quantity')}x {i.get('name')}" for i in items]
         )
 
-        message_text = (
-            f"🧾 *Pedido Generado #{order.id}*\n\n"
-            f"{items_summary}\n\n"
-            f"💰 *Total: {total_str}*"
-        )
+        lines = [
+            f"🧾 *Pedido Generado #{order.id}*",
+            "",
+            items_summary,
+            "",
+        ]
+
+        if order.shipping_cost > 0:
+            lines.append(f"🚚 Envío: S/{order.shipping_cost:.2f}")
+
+        if order.discount > 0:
+            lines.append(f"🏷️ Descuento: -S/{order.discount:.2f}")
+
+        lines.append(f"💰 *Total: {total_str}*")
+
+        message_text = "\n".join(lines)
 
         Message.objects.create(
             contact=contact,
