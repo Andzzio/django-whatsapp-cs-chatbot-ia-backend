@@ -12,7 +12,6 @@ from django.utils import timezone
 from .views import send_whatsapp_message
 from django.core.cache import cache
 from .services.catalog import sync_catalog_products
-from .services.whatsapp import send_product_message
 from logger import log
 
 
@@ -622,6 +621,8 @@ def send_product_to_contact(request, phone):
                 contact.save()
 
             # Enviar mensaje de producto usando servicio existente
+            from botyapp.services.whatsapp import send_product_message
+
             send_product_message(
                 phone, settings.CATALOG_ID, retailer_id, product_data=product_data
             )
