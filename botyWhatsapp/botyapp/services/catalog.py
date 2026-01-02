@@ -1,7 +1,5 @@
 import requests
 import difflib
-import io
-from PIL import Image
 from django.conf import settings
 from django.core.cache import cache
 from logger import log
@@ -61,20 +59,46 @@ def sync_catalog_products(catalog_id):
             for product in data.get("data", []):
                 retailer_id = product.get("retailer_id")
                 if retailer_id:
+                    # Parseo de Precio: Meta envía "100.00 PEN" o "50 USD"
+                    raw_price = product.get("price", "0")
+                    raw_sale_price = product.get("sale_price")
+
+                    def parse_price(p_str):
+                        if not p_str:
+                            return 0.0
+                        import re
+
+                        # Extraer solo números y punto decimal
+                        nums = re.findall(r"[\d\.]+", str(p_str))
+                        if nums:
+                            return float(nums[0])
+                        return 0.0
+
+                    price_val = parse_price(raw_price)
+                    if raw_sale_price:
+                        sale_val = parse_price(raw_sale_price)
+                        # Si hay sale price válido y menor, úsalo
+                        if sale_val > 0:
+                            price_val = sale_val
+
                     products_dict[retailer_id] = {
                         "name": product.get("name", "Sin nombre"),
-                        "price": product.get("price", 0),
-                        "sale_price": product.get("sale_price"),
+                        "price": price_val,  # Precio numérico limpio
+                        "display_price": raw_sale_price
+                        if raw_sale_price
+                        else raw_price,  # Para UI original
                         "description": product.get("description", ""),
                         "retailer_id": retailer_id,
                         "image_url": product.get("image_url", ""),
-                        "phash": None,  # Placeholder
+                        "phash": None,
                     }
 
-                    # 📸 Generar Huella Digital Visual (Hashing + CV)
+                    # ⚠️ OPTIMIZACIÓN: Desactivamos procesamiento de imagen en tiempo real
+                    # El cálculo de ORB/Hash tarda 1-2s por producto. Con 50 productos = 1.5 minutos de espera.
+                    # Esto debe moverse a una Tarea en Background (Celery/Cron)
+                    """
                     if product.get("image_url"):
                         try:
-                            # Descarga rápida
                             img_resp = requests.get(product.get("image_url"), timeout=5)
                             if img_resp.status_code == 200:
                                 image_data = img_resp.content
@@ -101,6 +125,19 @@ def sync_catalog_products(catalog_id):
                             log.warning(
                                 f"No se pudo procesar visión para {retailer_id}: {e}"
                             )
+                    """
+
+                    # Actualizar DB local (ProductEmbedding) para búsquedas rápidas
+                    ProductEmbedding.objects.update_or_create(
+                        retailer_id=retailer_id,
+                        defaults={
+                            "product_name": product.get("name", "Sin nombre"),
+                            "price": price_val,
+                            "image_url": product.get("image_url", "") or "",
+                            "is_available": True,
+                            "search_text": f"{product.get('name', '')} {product.get('description', '')}".lower(),
+                        },
+                    )
 
             # Verificar si hay más páginas
             url = data.get("paging", {}).get("next")
