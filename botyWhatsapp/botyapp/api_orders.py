@@ -44,33 +44,47 @@ def create_order(request, phone):
 
         for item in items:
             # Buscamos el producto. Si no existe, lo creamos "Lazy" (Auto-Healing)
-            retailer_id = item.get("retailer_id") or item.get(
-                "id"
-            )  # Support both formats
+            retailer_id = item.get("retailer_id") or item.get("id")
+
+            # Robustez: ID obligatorio y Trunk
+            if not retailer_id:
+                import uuid
+
+                retailer_id = f"custom_{uuid.uuid4().hex[:8]}"
+            retailer_id = str(retailer_id)[:190]  # Evitar overflow
+
+            # Parseo seguro de precio
             try:
-                product_embedding = ProductEmbedding.objects.get(
-                    retailer_id=retailer_id
-                )
-            except ProductEmbedding.DoesNotExist:
-                log.warning(
-                    f"⚠️ Lazy Sync: Creando producto {retailer_id} al vuelo para Order."
-                )
-                # Crear producto dummy con info del payload
-                price_val = float(item.get("unit_price", 0) or item.get("price", 0))
-                product_embedding = ProductEmbedding.objects.create(
-                    retailer_id=retailer_id,
-                    product_name=item.get("name", "Producto Desconocido"),
-                    price=price_val,
-                    search_text=f"{item.get('name', '')}".lower(),
-                    is_available=True,
-                    image_url=item.get("image_url", ""),
-                )
+                raw_price = item.get("unit_price", 0) or item.get("price", 0)
+                price_val = float(raw_price)
+            except (ValueError, TypeError):
+                price_val = 0.0
+
+            # Get or Create seguro con Truncamiento
+            name_val = str(item.get("name", "Producto Desconocido"))[:190]
+
+            defaults = {
+                "product_name": name_val,
+                "price": price_val,
+                "search_text": f"{name_val}".lower(),
+                "is_available": True,
+                "image_url": str(item.get("image_url", ""))[:490],
+            }
+
+            product_embedding, created = ProductEmbedding.objects.get_or_create(
+                retailer_id=retailer_id, defaults=defaults
+            )
+
+            # Si ya existía pero queremos asegurar que tenga info reciente (opcional)
+            # if not created:
+            #    product_embedding.product_name = defaults["product_name"]
+            #    product_embedding.save()
 
             OrderItem.objects.create(
                 order=order,
                 product=product_embedding,
                 quantity=item.get("quantity", 1),
-                unit_price=item.get("unit_price", product_embedding.price),
+                unit_price=item.get("unit_price", product_embedding.price) or 0.0,
                 product_name=item.get("name", product_embedding.product_name),
                 product_image_url=item.get("image_url", product_embedding.image_url),
             )
