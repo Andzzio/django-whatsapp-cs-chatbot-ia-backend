@@ -25,6 +25,12 @@ def get_dashboard_stats(request):
     if token != settings.DASH_TOKEN:
         return JsonResponse({"error": "Unauthorized"}, status=403)
 
+    # Cache Key per Token or Global? Global is fine for single tenant.
+    cache_key = f"dashboard_stats_{token[-5:]}"
+    cached_stats = cache.get(cache_key)
+    if cached_stats:
+        return JsonResponse(cached_stats)
+
     try:
         now = timezone.now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -109,10 +115,88 @@ def get_dashboard_stats(request):
             "hours_saved": round(hours_saved, 1),
             "catalog_status": catalog_status,
         }
+
+        # Cache for 60 seconds (short TTL to keep real-time feeling but avoid spam)
+        cache.set(cache_key, stats, timeout=60)
+
         return JsonResponse(stats)
 
     except Exception as e:
         log.error(f"Error calculating stats: {e}")
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def get_chat_history(request):
+    """
+    Endpoint for lazy loading chat history.
+    """
+    if request.method != "GET":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    token = request.headers.get("Authorization")
+    if token != settings.DASH_TOKEN:
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    phone_number = request.GET.get("phone")
+    if not phone_number:
+        return JsonResponse({"error": "Missing phone"}, status=400)
+
+    before_id = request.GET.get("before_id")
+    limit = int(request.GET.get("limit", 50))
+
+    try:
+        contact = Contact.objects.get(phone=phone_number)
+
+        # Base query
+        qs = contact.messages.all().order_by("-timestamp")
+
+        if before_id:
+            try:
+                qs = qs.filter(id__lt=int(before_id))
+            except ValueError:
+                pass
+
+        messages_slice = qs[:limit]
+
+        msgs = []
+        # Revertir para orden cronológico (viejo -> nuevo)
+        for m in reversed(messages_slice):
+            reply_info = None
+            if m.reply_to:
+                reply_info = {
+                    "id": m.reply_to.id,
+                    "text": m.reply_to.text,
+                    "type": m.reply_to.message_type,
+                    "media_id": m.reply_to.media_id,
+                    "sender_name": (
+                        m.reply_to.contact.name if not m.reply_to.is_bot else "Bot"
+                    ),
+                }
+
+            msgs.append(
+                {
+                    "id": m.id,
+                    "user": "BOTY" if m.is_bot else contact.name,
+                    "text": m.text,
+                    "time": m.timestamp.astimezone(
+                        pytz.timezone("America/Lima")
+                    ).strftime("%H:%M"),
+                    "is_bot": m.is_bot,
+                    "type": m.message_type,
+                    "media_id": m.media_id,
+                    "caption": m.caption,
+                    "is_read": m.is_read,
+                    "reply_to": reply_info,
+                }
+            )
+
+        return JsonResponse({"messages": msgs})
+
+    except Contact.DoesNotExist:
+        return JsonResponse({"error": "Contact not found"}, status=404)
+    except Exception as e:
+        print(f"Error fetching history: {e}")
         return JsonResponse({"error": str(e)}, status=500)
 
 
@@ -128,7 +212,12 @@ def sync_data(request):
         for contact in contacts:
             msgs = []
 
-            for m in contact.messages.all().order_by("timestamp"):
+            # OPTIMIZATION: Solo traer los últimos 50 mensajes para no saturar
+            # Si se necesita historial completo, se debería hacer con paginación lazy
+            recent_messages = contact.messages.all().order_by("-timestamp")[:50]
+
+            # Revertir para mantener orden cronológico
+            for m in reversed(recent_messages):
                 reply_info = None
                 if m.reply_to:
                     reply_info = {

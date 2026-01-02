@@ -23,6 +23,7 @@ urlpatterns = [
     # path('admin/', admin.site.urls),
     path("", botyapp.views.health_check, name="health_check"),
     path("webhook/", botyapp.views.whatsapp_webhook, name="whatsapp_webhook_meta"),
+    path("api/chat-history/", api.get_chat_history, name="get_chat_history"),
     path("api/sync/", api.sync_data, name="api_sync"),
     path(
         "api/contacts/<str:phone>/toggle-bot/", api.toggle_bot_status, name="toggle_bot"
