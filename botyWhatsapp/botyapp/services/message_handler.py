@@ -46,7 +46,9 @@ class MessageHandler:
 
             # --- DEDUPLICACIÓN ROBUSTA (CORE FIX) ---
             # Verificar si el message_id ya existe ANTES de hacer nada pesado
-            if Message.objects.filter(message_id=message_id).exists():
+            # NOTA: Para Media (Image/Audio), views.py crea el mensaje antes de llamar al hilo.
+            # Por tanto, si es media, ES NORMAL que exista. Solo bloqueamos si es texto (que este handler crea).
+            if not media_id and Message.objects.filter(message_id=message_id).exists():
                 log.warning(
                     f"🛑 Mensaje YA existente en DB (Bloqueo Preventivo): {message_id}"
                 )
