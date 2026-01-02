@@ -44,6 +44,15 @@ class MessageHandler:
                 )
                 return
 
+            # --- DEDUPLICACIÓN ROBUSTA (CORE FIX) ---
+            # Verificar si el message_id ya existe ANTES de hacer nada pesado
+            if Message.objects.filter(message_id=message_id).exists():
+                log.warning(
+                    f"🛑 Mensaje YA existente en DB (Bloqueo Preventivo): {message_id}"
+                )
+                return
+            # ---------------------------------------
+
             # Lookup Reply Original Message
             reply_to_msg = None
             if reply_to_message_id:
@@ -70,7 +79,9 @@ class MessageHandler:
                         reply_to=reply_to_msg,
                     )
                 except IntegrityError:
-                    log.warning(f"🛑 Mensaje duplicado en DB: {message_id}")
+                    log.warning(
+                        f"🛑 Mensaje duplicado en DB (IntegrityError): {message_id}"
+                    )
                     return
                 except Exception as e:
                     log.error(f"⚠️ Error guardando mensaje texto: {e}")

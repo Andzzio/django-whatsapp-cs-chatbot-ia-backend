@@ -234,3 +234,24 @@ class OrderItem(models.Model):
         if not self.product_name:
             self.product_name = self.product.product_name
         super().save(*args, **kwargs)
+
+
+class Snippet(models.Model):
+    """
+    Snippets de texto para respuestas rápidas.
+    Cada token (usuario dashboard) tiene sus propios snippets?
+    Por ahora lo haremos global o por token si el usuario lo pide.
+    Asumiremos global por simplicidad o vinculado a nada específico por ahora.
+    """
+
+    token = models.CharField(max_length=255, db_index=True, default="default")
+    shortcut = models.CharField(max_length=50)  # Ej: /saludo
+    content = models.TextField()  # Ej: Hola, ¿cómo estás?
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("token", "shortcut")
+
+    def __str__(self):
+        return f"{self.shortcut} -> {self.content[:20]}..."

@@ -5,6 +5,7 @@ from PIL import Image
 from django.conf import settings
 from logger import log
 from botyapp.models import Contact, Message
+import copy
 
 
 def send_whatsapp_message(receptor_wsp_id, text_answer, reply_to_message_id=None):
@@ -26,7 +27,7 @@ def send_whatsapp_message(receptor_wsp_id, text_answer, reply_to_message_id=None
 
     try:
         response = requests.post(
-            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
+            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data), timeout=10
         )
         response.raise_for_status()
         res_json = response.json()
@@ -107,7 +108,7 @@ def send_catalog_message(receptor_wsp_id, body_text="¡Mira nuestro catálogo! �
 
     try:
         response = requests.post(
-            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
+            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data), timeout=10
         )
         response.raise_for_status()
         res_json = response.json()
@@ -164,7 +165,7 @@ def send_product_message(
 
     try:
         response = requests.post(
-            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
+            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data), timeout=10
         )
         response.raise_for_status()
         res_json = response.json()
@@ -211,13 +212,12 @@ def send_product_list_message(
 ):
     """
     Envía una lista de productos del catálogo organizados por secciones
+    sections: Lista de dicts [{'title': '...', 'product_items': [{'product_retailer_id': '...'}]}]
     """
     headers = {
         "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
         "Content-Type": "application/json",
     }
-
-    import copy
 
     # Crear copia limpia para la API de WhatsApp (solo permite product_retailer_id)
     api_sections = copy.deepcopy(sections)
@@ -246,7 +246,7 @@ def send_product_list_message(
 
     try:
         response = requests.post(
-            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
+            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data), timeout=10
         )
         response.raise_for_status()
         res_json = response.json()
@@ -300,7 +300,7 @@ def send_contact_message(sender_id):
     }
     try:
         response = requests.post(
-            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
+            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data), timeout=10
         )
         response.raise_for_status()
         res_json = response.json()
@@ -360,7 +360,9 @@ def send_button_catalog_agent(sender_id, message):
     }
 
     try:
-        response = requests.post(settings.WHATSAPP_URL, headers=headers, json=data)
+        response = requests.post(
+            settings.WHATSAPP_URL, headers=headers, json=data, timeout=10
+        )
         response.raise_for_status()
         res_json = response.json()
         log.debug(f"MENSAJE DE BOTONES ENVIADO CON ÉXITO: {res_json}")
@@ -398,7 +400,7 @@ def send_image(sender_id, image_id):
     }
     try:
         response = requests.post(
-            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data)
+            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data), timeout=10
         )
         response.raise_for_status()
         res_json = response.json()
@@ -429,7 +431,7 @@ def get_whatsapp_media_url(media_id):
     url = f"https://graph.facebook.com/v21.0/{media_id}"
     headers = {"Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}"}
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         return response.json().get("url")
     except Exception as e:
@@ -453,7 +455,7 @@ def download_and_optimize_image(url):
     """Descarga y optimiza la imagen para Gemini"""
     headers = {"Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}"}
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
 
         # Procesar con PIL

@@ -43,35 +43,36 @@ def create_order(request, phone):
         )
 
         for item in items:
-            # Buscar producto (opcional, para integridad, pero usamos info snapshot)
-            product_embedding = None
-            retailer_id = item.get("retailer_id")
-            if retailer_id:
-                product_embedding = ProductEmbedding.objects.filter(
+            # Buscamos el producto. Si no existe, lo creamos "Lazy" (Auto-Healing)
+            retailer_id = item.get("retailer_id") or item.get(
+                "id"
+            )  # Support both formats
+            try:
+                product_embedding = ProductEmbedding.objects.get(
                     retailer_id=retailer_id
-                ).first()
-
-            # Si no existe el producto en BD local (poco probable si viene del catálogo),
-            # podríamos crearlo dummy o manejar error. Por ahora asumimos snapshot.
-            # Nota: OrderItem requiere 'product' FK. Si el producto no está sincronizado, fallará.
-            # Solución robusta: Si no existe, usamos un producto "Genérico" o lo creamos al vuelo (más complejo).
-            # Para este MVP, asumiremos que ProductEmbedding existe porque viene del catálogo.
-
-            if not product_embedding:
-                # Fallback crítico: Si no existe embedding, no podemos crear OrderItem por la FK.
-                # Opción: Ignorar FK (no posible en Django estricto) o fallar.
-                # Decisión: Logear y saltar o Error. Retornamos error para debug.
-                return JsonResponse(
-                    {"error": f"Product {retailer_id} not found locally"}, status=400
+                )
+            except ProductEmbedding.DoesNotExist:
+                log.warning(
+                    f"⚠️ Lazy Sync: Creando producto {retailer_id} al vuelo para Order."
+                )
+                # Crear producto dummy con info del payload
+                price_val = float(item.get("unit_price", 0) or item.get("price", 0))
+                product_embedding = ProductEmbedding.objects.create(
+                    retailer_id=retailer_id,
+                    product_name=item.get("name", "Producto Desconocido"),
+                    price=price_val,
+                    search_text=f"{item.get('name', '')}".lower(),
+                    is_available=True,
+                    image_url=item.get("image_url", ""),
                 )
 
             OrderItem.objects.create(
                 order=order,
                 product=product_embedding,
                 quantity=item.get("quantity", 1),
-                unit_price=item.get("unit_price", 0),
-                product_name=item.get("name", "Unknown Product"),
-                product_image_url=item.get("image_url", ""),
+                unit_price=item.get("unit_price", product_embedding.price),
+                product_name=item.get("name", product_embedding.product_name),
+                product_image_url=item.get("image_url", product_embedding.image_url),
             )
 
         order.calculate_totals()

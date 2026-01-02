@@ -17,42 +17,39 @@ Including another URLconf
 
 from django.urls import path
 import botyapp.views
-from botyapp.api import (
-    sync_data,
-    toggle_bot_status,
-    send_message_to_contact,
-    get_media,
-    send_media_message,
-    mark_messages_read,
-    get_products_list,
-    send_product_to_contact,
-    generate_embeddings_endpoint,
-)
-from botyapp.api_orders import create_order
+from botyapp import api, api_orders, api_snippets
 
 urlpatterns = [
     # path('admin/', admin.site.urls),
     path("", botyapp.views.health_check, name="health_check"),
     path("webhook/", botyapp.views.whatsapp_webhook, name="whatsapp_webhook_meta"),
-    path("api/sync/", sync_data, name="api_sync"),
-    path("api/contacts/<str:phone>/toggle-bot/", toggle_bot_status, name="toggle_bot"),
+    path("api/sync/", api.sync_data, name="api_sync"),
+    path(
+        "api/contacts/<str:phone>/toggle-bot/", api.toggle_bot_status, name="toggle_bot"
+    ),
     path(
         "api/contacts/<str:phone>/send-message/",
-        send_message_to_contact,
+        api.send_message_to_contact,
         name="send_message",
     ),
-    path("api/media/<str:media_id>/", get_media, name="get_media"),
-    path("api/contacts/<str:phone>/send-media/", send_media_message, name="send_media"),
-    path("api/contacts/<str:phone>/mark-read/", mark_messages_read, name="mark_read"),
-    path("api/products/", get_products_list, name="get_products"),
+    path("api/media/<str:media_id>/", api.get_media, name="get_media"),
+    path(
+        "api/contacts/<str:phone>/send-media/",
+        api.send_media_message,
+        name="send_media",
+    ),
+    path(
+        "api/contacts/<str:phone>/mark-read/", api.mark_messages_read, name="mark_read"
+    ),
+    path("api/products/", api.get_products_list, name="get_products"),
     path(
         "api/contacts/<str:phone>/send-product/",
-        send_product_to_contact,
+        api.send_product_to_contact,
         name="send_product",
     ),
     path(
         "api/generate-embeddings/",
-        generate_embeddings_endpoint,
+        api.generate_embeddings_endpoint,
         name="generate_embeddings",
     ),
     path(
@@ -62,7 +59,16 @@ urlpatterns = [
     ),
     path(
         "api/contacts/<str:phone>/create-order/",
-        create_order,
+        api_orders.create_order,
         name="create_order",
+    ),
+    # --- DASHBOARD & SNIPPETS V2 ---
+    path("api/dashboard-stats/", api.get_dashboard_stats, name="dashboard_stats"),
+    path("api/snippets/", api_snippets.get_snippets, name="get_snippets"),
+    path("api/snippets/create/", api_snippets.create_snippet, name="create_snippet"),
+    path(
+        "api/snippets/<int:snippet_id>/",
+        api_snippets.delete_snippet,
+        name="delete_snippet",
     ),
 ]
