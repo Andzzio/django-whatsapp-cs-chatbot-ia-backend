@@ -263,6 +263,7 @@ def sync_data(request):
                         if contact.messages.exists()
                         else contact.created_at.isoformat()
                     ),
+                    "tags": contact.tags,
                 }
             )
 
