@@ -86,7 +86,7 @@ def create_order(request, phone):
                 quantity=item.get("quantity", 1),
                 unit_price=price_val,
                 product_name=name_val,
-                product_image_url=item.get("image_url", product_embedding.image_url),
+                # No guardamos product_image_url para ahorrar espacio en BD
             )
 
         order.calculate_totals()
