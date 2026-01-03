@@ -17,7 +17,14 @@ Including another URLconf
 
 from django.urls import path
 import botyapp.views
-from botyapp import api, api_orders, api_snippets, api_orders_list, api_orders_reset
+from botyapp import (
+    api,
+    api_orders,
+    api_snippets,
+    api_orders_list,
+    api_orders_reset,
+    api_analytics,
+)
 
 urlpatterns = [
     # path('admin/', admin.site.urls),
@@ -88,5 +95,16 @@ urlpatterns = [
         "api/snippets/<int:snippet_id>/",
         api_snippets.delete_snippet,
         name="delete_snippet",
+    ),
+    # --- ANALYTICS V3 ---
+    path(
+        "api/analytics/stats/",
+        api_analytics.get_analytics_stats,
+        name="analytics_stats",
+    ),
+    path(
+        "api/analytics/trends/",
+        api_analytics.get_analytics_trends,
+        name="analytics_trends",
     ),
 ]
