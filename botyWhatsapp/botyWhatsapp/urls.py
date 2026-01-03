@@ -25,6 +25,7 @@ from botyapp import (
     api_orders_reset,
     api_analytics,
     api_stock,
+    api_orders_stock,
 )
 
 urlpatterns = [
@@ -113,5 +114,11 @@ urlpatterns = [
         "api/products/<str:retailer_id>/stock/",
         api_stock.update_product_stock,
         name="update_stock",
+    ),
+    # --- ORDERS STOCK DEDUCTION ---
+    path(
+        "api/orders/<int:order_id>/deduct-stock/",
+        api_orders_stock.deduct_order_stock,
+        name="deduct_order_stock",
     ),
 ]

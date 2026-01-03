@@ -61,6 +61,12 @@ def get_orders_list(request):
                     "discount": float(order.discount),
                     "items": items_data,
                     "created_at": order.created_at.isoformat(),
+                    "stock_deducted": order.stock_deducted,
+                    "stock_deducted_at": (
+                        order.stock_deducted_at.isoformat()
+                        if order.stock_deducted_at
+                        else None
+                    ),
                 }
             )
 
@@ -74,9 +80,9 @@ def get_orders_list(request):
 @csrf_exempt
 def update_order_status(request, order_id):
     """
-    PATCH /api/orders/<id>/status/
+    PATCH /api/orders/<order_id>/status/
     Actualiza el estado de una orden
-    Body: {"status": "COMPLETED" | "CANCELLED" | "PENDING"}
+    Body: {"status": "COMPLETED"}
     """
     token = request.headers.get("Authorization")
     if token != settings.DASH_TOKEN:
@@ -88,17 +94,23 @@ def update_order_status(request, order_id):
     try:
         import json
 
-        order = Order.objects.get(id=order_id)
         data = json.loads(request.body)
-        new_status = data.get("status", "").upper()
+        new_status = data.get("status")
 
-        if new_status not in ["PENDING", "COMPLETED", "CANCELLED"]:
-            return JsonResponse({"error": "Invalid status"}, status=400)
+        # Validar status
+        valid_statuses = dict(Order.STATUS_CHOICES).keys()
+        if new_status not in valid_statuses:
+            return JsonResponse(
+                {"error": f"Invalid status. Must be one of: {list(valid_statuses)}"},
+                status=400,
+            )
 
+        # Actualizar
+        order = Order.objects.get(id=order_id)
         order.status = new_status
         order.save()
 
-        return JsonResponse({"status": "success", "new_status": new_status})
+        return JsonResponse({"status": "success", "order_id": order.id})
 
     except Order.DoesNotExist:
         return JsonResponse({"error": "Order not found"}, status=404)
