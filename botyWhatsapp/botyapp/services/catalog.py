@@ -98,6 +98,18 @@ def sync_catalog_products(catalog_id):
                         if sale_val > 0:
                             price_val = sale_val
 
+                    # Obtener información de stock desde ProductEmbedding (si existe)
+                    stock_quantity = 0
+                    is_available = True
+                    try:
+                        product_embedding = ProductEmbedding.objects.get(
+                            retailer_id=retailer_id
+                        )
+                        stock_quantity = product_embedding.stock_quantity
+                        is_available = product_embedding.is_available
+                    except ProductEmbedding.DoesNotExist:
+                        pass  # Usar valores por defecto
+
                     products_dict[retailer_id] = {
                         "name": product.get("name", "Sin nombre"),
                         "price": price_val,  # Precio numérico limpio
@@ -108,6 +120,8 @@ def sync_catalog_products(catalog_id):
                         "retailer_id": retailer_id,
                         "image_url": product.get("image_url", ""),
                         "phash": None,
+                        "stock_quantity": stock_quantity,  # ← NUEVO
+                        "is_available": is_available,  # ← NUEVO
                     }
 
                     # ⚠️ OPTIMIZACIÓN: Desactivamos procesamiento de imagen en tiempo real
@@ -151,8 +165,9 @@ def sync_catalog_products(catalog_id):
                             "product_name": product.get("name", "Sin nombre"),
                             "price": price_val,
                             "image_url": product.get("image_url", "") or "",
-                            "is_available": True,
                             "search_text": f"{product.get('name', '')} {product.get('description', '')}".lower(),
+                            # NO sobrescribir stock_quantity ni is_available aquí
+                            # para preservar valores editados desde el dashboard
                         },
                     )
 
