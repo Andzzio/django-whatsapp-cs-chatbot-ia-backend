@@ -512,11 +512,6 @@ def send_message_to_contact(request, phone):
         return JsonResponse({"error": "Unauthorized"}, status=403)
     if request.method == "POST":
         try:
-            # Check if contact exists first
-            if not Contact.objects.filter(phone=phone).exists():
-                return JsonResponse({"error": "Contact not found"}, status=404)
-            # contact = Contact.objects.get(phone=phone) # Unused variable removed
-
             data = json.loads(request.body)
             text = data.get("text")
             reply_to_db_id = data.get("reply_to_id")  # ID numérico de la DB (Django)
@@ -524,10 +519,18 @@ def send_message_to_contact(request, phone):
             if not text or text.strip() == "":
                 return JsonResponse({"error": "Text Empty"}, status=400)
 
+            # Get contact first
+            try:
+                contact = Contact.objects.get(phone=phone)
+            except Contact.DoesNotExist:
+                return JsonResponse({"error": "Contact not found"}, status=404)
+
             wamid_context = None
+
+            # Buscar mensaje reply_to
+            original_msg = None
             if reply_to_db_id:
                 try:
-                    # Buscamos el mensaje en la DB para obtener el WAMID real (necesario para la API)
                     original_msg = Message.objects.get(id=reply_to_db_id)
                     wamid_context = original_msg.message_id
                     log.debug(
@@ -539,15 +542,58 @@ def send_message_to_contact(request, phone):
             send_whatsapp_message(phone, text, reply_to_message_id=wamid_context)
 
             # Limpieza automática de alerta de ayuda
-            try:
-                contact = Contact.objects.get(phone=phone)
-                if contact.needs_human_attention:
-                    contact.needs_human_attention = False
-                    contact.save()
-            except Contact.DoesNotExist:
-                pass
+            if contact.needs_human_attention:
+                contact.needs_human_attention = False
+                contact.save()
 
-            return JsonResponse({"status": "success", "message": "sent"})
+            # Crear registro en DB
+            new_msg = Message.objects.create(
+                contact=contact,
+                text=text,
+                is_bot=True,
+                message_type="text",
+                reply_to=original_msg,
+            )
+
+            # FIX: Recargar el mensaje con reply_to poblado para devolverlo correctamente
+            new_msg = Message.objects.select_related(
+                "reply_to", "reply_to__contact"
+            ).get(id=new_msg.id)
+
+            # Preparar reply_info para respuesta
+            reply_info = None
+            if new_msg.reply_to:
+                reply_info = {
+                    "id": new_msg.reply_to.id,
+                    "text": new_msg.reply_to.text,
+                    "type": new_msg.reply_to.message_type,
+                    "media_id": new_msg.reply_to.media_id,
+                    "sender_name": (
+                        new_msg.reply_to.contact.name
+                        if not new_msg.reply_to.is_bot
+                        else "Bot"
+                    ),
+                }
+
+            return JsonResponse(
+                {
+                    "status": "sent",
+                    "message": {
+                        "id": new_msg.id,
+                        "user": "BOTY",
+                        "text": new_msg.text,
+                        "time": new_msg.timestamp.astimezone(
+                            pytz.timezone("America/Lima")
+                        ).strftime("%H:%M"),
+                        "is_bot": True,
+                        "type": "text",
+                        "media_id": None,
+                        "caption": None,
+                        "is_read": False,
+                        "reply_to": reply_info,
+                    },
+                }
+            )
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
 
