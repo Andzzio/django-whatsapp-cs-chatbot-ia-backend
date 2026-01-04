@@ -34,12 +34,25 @@ def create_order(request, phone):
         if not items:
             return JsonResponse({"error": "No items provided"}, status=400)
 
-        # Crear Orden PENDING
+        # Validar que todos los items tengan talla
+        missing_size = [i for i in items if not i.get("size")]
+        if missing_size:
+            return JsonResponse(
+                {
+                    "error": "Todos los productos deben tener talla asignada",
+                    "items_missing_size": [
+                        i.get("name", "Unknown") for i in missing_size
+                    ],
+                },
+                status=400,
+            )
+
+        # Crear Orden PENDING (con tallas ya asignadas)
         from decimal import Decimal
 
         order = Order.objects.create(
             contact=contact,
-            status="PENDING",
+            status="PENDING",  # Ya tiene tallas, listo para confirmar
             shipping_cost=Decimal(str(data.get("shipping_cost", 0))),
             discount=Decimal(str(data.get("discount", 0))),
         )
@@ -79,18 +92,35 @@ def create_order(request, phone):
                 retailer_id=retailer_id, defaults=defaults
             )
 
-            # Si ya existía pero queremos asegurar que tenga info reciente (opcional)
-            # if not created:
-            #    product_embedding.product_name = defaults["product_name"]
-            #    product_embedding.save()
+            # Obtener talla del item
+            size = item.get("size", "").upper()
 
+            # Validar stock de la talla
+            if size and product_embedding:
+                size_field = f"stock_{size.lower()}"
+                available_stock = getattr(product_embedding, size_field, 0)
+                requested_qty = item.get("quantity", 1)
+
+                if available_stock < requested_qty:
+                    return JsonResponse(
+                        {
+                            "error": "Stock insuficiente",
+                            "product": name_val,
+                            "size": size,
+                            "requested": requested_qty,
+                            "available": available_stock,
+                        },
+                        status=400,
+                    )
+
+            # Crear OrderItem con talla
             OrderItem.objects.create(
                 order=order,
                 product=product_embedding,
-                quantity=item.get("quantity", 1),
-                unit_price=price_val,
                 product_name=name_val,
-                # No guardamos product_image_url para ahorrar espacio en BD
+                quantity=item.get("quantity", 1),
+                price=price_val,
+                size=size,  # ✅ Talla asignada desde POS
             )
 
         order.calculate_totals()
