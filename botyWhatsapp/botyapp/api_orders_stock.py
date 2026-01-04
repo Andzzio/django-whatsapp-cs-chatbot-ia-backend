@@ -3,7 +3,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
-from .models import Order, ProductEmbedding
+from .models import Order
 from logger import log
 
 
@@ -25,8 +25,8 @@ def deduct_order_stock(request, order_id):
     except Order.DoesNotExist:
         return JsonResponse({"error": "Order not found"}, status=404)
 
-    # Validar que no se haya descontado ya
-    if order.stock_deducted:
+    # Validar que no se haya descontado ya, A MENOS que haya sido revertido
+    if order.stock_deducted and not order.stock_reverted:
         return JsonResponse(
             {
                 "error": "Stock already deducted for this order",
@@ -102,6 +102,7 @@ def deduct_order_stock(request, order_id):
 
     # Marcar orden
     order.stock_deducted = True
+    order.stock_reverted = False  # Resetear si estaba revertido
     order.stock_deducted_at = timezone.now()
     order.save()
 
