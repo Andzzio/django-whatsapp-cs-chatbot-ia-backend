@@ -162,6 +162,7 @@ class Order(models.Model):
 
     STATUS_CHOICES = [
         ("PENDING", "Pendiente"),
+        ("PENDING_SIZE", "Pendiente - Sin Talla"),
         ("CONFIRMED", "Confirmado"),
         ("SHIPPED", "Enviado"),
         ("DELIVERED", "Entregado"),
@@ -232,28 +233,42 @@ class Order(models.Model):
 class OrderItem(models.Model):
     """Items individuales de un pedido"""
 
-    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(ProductEmbedding, on_delete=models.PROTECT)
-
+    order = models.ForeignKey(Order, related_name="items", on_delete=models.CASCADE)
+    product = models.ForeignKey(
+        ProductEmbedding, null=True, blank=True, on_delete=models.SET_NULL
+    )
+    product_name = models.CharField(max_length=200)
     quantity = models.IntegerField(default=1)
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
 
-    # Snapshot del producto al momento de la compra
-    product_name = models.CharField(max_length=500)
-    product_image_url = models.URLField(blank=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
+    SIZE_CHOICES = [
+        ("S", "S"),
+        ("M", "M"),
+        ("L", "L"),
+        ("XL", "XL"),
+    ]
+    size = models.CharField(
+        max_length=2,
+        choices=SIZE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name="Talla",
+        help_text="Talla del producto (S, M, L, XL)",
+    )
 
     @property
     def subtotal(self):
-        return self.quantity * self.unit_price
+        return self.quantity * self.price
 
     def __str__(self):
-        return f"{self.product_name} x{self.quantity}"
+        size_str = f" ({self.size})" if self.size else " (Sin talla)"
+        return f"{self.product_name}{size_str} x{self.quantity}"
 
     def save(self, *args, **kwargs):
         # Auto-populate product info snapshot
-        if not self.product_name:
+        if (
+            not self.product_name and self.product
+        ):  # Added check for self.product to prevent error if product is null
             self.product_name = self.product.product_name
         super().save(*args, **kwargs)
 

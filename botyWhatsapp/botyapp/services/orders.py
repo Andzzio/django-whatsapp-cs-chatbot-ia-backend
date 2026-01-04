@@ -99,12 +99,6 @@ def process_order(order_data, sender_id):
 
             log.debug(f"  ✓ Nombre: {product_name}")
             log.debug(f"  ✓ Cantidad: {quantity}")
-            log.debug(f"  ✓ Precio unitario: {currency} {item_price:.2f}")
-            log.debug(f"  ✓ Subtotal: {currency} {subtotal:.2f}\n")
-
-            # Formatear el resumen para WhatsApp
-            order_summary += f"{idx}. *{product_name}*\n"
-            order_summary += f"   📦 Cantidad: {quantity} {'unidad' if quantity == 1 else 'unidades'}\n"
             order_summary += f"   💵 Precio unitario: {currency} {item_price:.2f}\n"
             order_summary += f"   💰 Subtotal: {currency} {subtotal:.2f}\n\n"
 
@@ -124,30 +118,30 @@ def process_order(order_data, sender_id):
         confirmation_message = (
             f"✅ *¡Pedido recibido exitosamente!*\n\n"
             f"{order_summary}\n\n"
-            f"Estamos procesando tu pedido. 📋\n"
-            f"En breve nos pondremos en contacto contigo para coordinar la entrega. 🚚\n\n"
+            f"📝 *Estado:* Pendiente de confirmación\n"
+            f"👥 Nuestro equipo te contactará pronto para confirmar tallas y detalles.\n\n"
             f"_Gracias por tu compra_ 🙌✨"
         )
 
         send_whatsapp_message(sender_id, confirmation_message)
 
-        # ✅ CREAR ORDEN EN BASE DE DATOS
+        # ✅ CREAR ORDEN EN BASE DE DATOS con status PENDING_SIZE
         from botyapp.models import Contact, Order, OrderItem, ProductEmbedding
 
         try:
             contact = Contact.objects.get(phone=sender_id)
 
-            # Crear la orden
+            # Crear la orden con status PENDING_SIZE (sin tallas asignadas)
             order = Order.objects.create(
                 contact=contact,
-                status="PENDING",
+                status="PENDING_SIZE",  # Estado: esperando asignación de tallas
                 checkout_stage="COMPLETED",
                 shipping_cost=shipping_cost,
                 subtotal=total_price,
                 total_amount=total_with_shipping,
             )
 
-            # Crear items de la orden
+            # Crear items de la orden SIN talla (se asigna desde dashboard)
             for item in product_items:
                 product_retailer_id = item.get("product_retailer_id")
                 quantity = item.get("quantity", 1)
@@ -159,36 +153,47 @@ def process_order(order_data, sender_id):
                         retailer_id=product_retailer_id
                     )
 
+                    # Crear OrderItem SIN talla
                     OrderItem.objects.create(
                         order=order,
                         product=product,
+                        product_name=product.product_name,
                         quantity=quantity,
-                        unit_price=item_price,
+                        price=item_price,
+                        size=None,  # ✅ Sin talla - se asigna desde dashboard
                     )
+
+                    log.debug(
+                        f"  ✅ Item guardado: {product.product_name} x{quantity} (Sin talla)"
+                    )
+
                 except ProductEmbedding.DoesNotExist:
                     log.warning(
-                        f"⚠️ Producto {product_retailer_id} no encontrado en BD, saltando item"
+                        f"  ⚠️  Producto {product_retailer_id} no encontrado en BD"
                     )
-                    continue
+                    # Crear item sin product reference
+                    OrderItem.objects.create(
+                        order=order,
+                        product=None,
+                        product_name=f"Producto {product_retailer_id}",
+                        quantity=quantity,
+                        price=item_price,
+                        size=None,
+                    )
 
-            # Recalcular totales
-            order.calculate_totals()
-
-            log.debug(f"✅ Orden #{order.id} creada en BD exitosamente")
+            log.info(
+                f"✅ Orden #{order.id} registrada en BD (PENDING_SIZE - {order.items.count()} items)"
+            )
 
         except Contact.DoesNotExist:
-            log.error(f"❌ Contacto {sender_id} no encontrado")
-        except Exception as db_error:
-            log.error(f"❌ Error creando orden en BD: {db_error}")
-            import traceback
+            log.error(f"❌ Contacto {sender_id} no encontrado en BD")
+        except Exception as e:
+            log.error(f"❌ Error guardando orden: {e}")
 
-            traceback.print_exc()
+        # Notificar al dueño
+        notify_owner(order_data, sender_id, total_with_shipping, currency)
 
-        log.debug("✅ Orden procesada exitosamente")
-        log.debug(f"💰 Total: {currency} {total_price:.2f}")
-        log.debug(f"{'=' * 50}\n")
-
-        notify_owner(order_data, sender_id, total_price, currency)
+        log.info(f"✅ Orden procesada exitosamente para {sender_id}")
         return True
     except Exception as e:
         log.error(f"❌ Error procesando orden: {e}")

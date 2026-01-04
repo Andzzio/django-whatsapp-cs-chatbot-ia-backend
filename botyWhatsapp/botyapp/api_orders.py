@@ -117,3 +117,81 @@ def create_order(request, phone):
     except Exception as e:
         log.error(f"Error creating order: {e}")
         return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
+def assign_item_size(request, item_id):
+    """
+    PUT /api/orders/items/<item_id>/size/
+    Asigna talla a un OrderItem desde el dashboard.
+
+    Body: {"size": "M"}
+    """
+    token = request.headers.get("Authorization")
+    if token != settings.DASH_TOKEN:
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    if request.method != "PUT":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        size = data.get("size", "").upper()
+
+        # Validar talla
+        if size not in ["S", "M", "L", "XL"]:
+            return JsonResponse(
+                {"error": "Talla inválida. Use: S, M, L, XL"}, status=400
+            )
+
+        # Obtener OrderItem
+        item = OrderItem.objects.get(id=item_id)
+
+        # Validar stock de la talla
+        if item.product:
+            size_field = f"stock_{size.lower()}"
+            available_stock = getattr(item.product, size_field, 0)
+
+            if available_stock < item.quantity:
+                return JsonResponse(
+                    {
+                        "error": "Stock insuficiente",
+                        "size": size,
+                        "requested": item.quantity,
+                        "available": available_stock,
+                    },
+                    status=400,
+                )
+
+        # Asignar talla
+        item.size = size
+        item.save()
+
+        log.info(f"✅ Talla {size} asignada a OrderItem #{item.id}")
+
+        # Si todos los items de la orden tienen talla, cambiar a PENDING
+        order = item.order
+        all_have_size = all(i.size is not None for i in order.items.all())
+
+        if all_have_size and order.status == "PENDING_SIZE":
+            order.status = "PENDING"
+            order.save()
+            log.info(f"✅ Orden #{order.id} cambió a PENDING")
+
+        return JsonResponse(
+            {
+                "status": "success",
+                "item_id": item.id,
+                "size": size,
+                "order_status": order.status,
+                "all_sizes_assigned": all_have_size,
+            }
+        )
+
+    except OrderItem.DoesNotExist:
+        return JsonResponse({"error": "Item no encontrado"}, status=404)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "JSON inválido"}, status=400)
+    except Exception as e:
+        log.error(f"Error asignando talla: {e}")
+        return JsonResponse({"error": str(e)}, status=500)

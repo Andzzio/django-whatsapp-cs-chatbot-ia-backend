@@ -122,6 +122,12 @@ urlpatterns = [
         api_orders_stock.deduct_order_stock,
         name="deduct_order_stock",
     ),
+    # --- ORDER ITEMS MANAGEMENT ---
+    path(
+        "api/orders/items/<int:item_id>/size/",
+        api_orders.assign_item_size,
+        name="assign_item_size",
+    ),
     # --- EXCEL IMPORT/EXPORT ---
     path(
         "api/products/export/excel/",
