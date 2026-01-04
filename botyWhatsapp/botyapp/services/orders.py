@@ -79,7 +79,7 @@ def process_order(order_data, sender_id):
         total_items = 0
         total_price = 0
         order_summary = "📦 *Resumen de tu pedido:*\n\n"
-
+        
         for idx, item in enumerate(product_items, 1):
             product_retailer_id = item.get("product_retailer_id")
             quantity = item.get("quantity", 1)
@@ -100,9 +100,9 @@ def process_order(order_data, sender_id):
             log.debug(f"  ✓ Nombre: {product_name}")
             log.debug(f"  ✓ Cantidad: {quantity}")
 
-            # --- MOD: Agregar "Talla: Por confirmar" al resumen (User Request) ---
+            # --- MOD: Reverted Talla por confirmar ---
             order_summary += f"{idx}. *{product_name}*\n"
-            order_summary += "   (Talla: Por confirmar)\n"
+            # order_summary += "   (Talla: Por confirmar)\n" # REMOVED
             order_summary += f"   💵 Precio unitario: {currency} {item_price:.2f}\n"
             order_summary += f"   💰 Subtotal: {currency} {subtotal:.2f}\n\n"
 
