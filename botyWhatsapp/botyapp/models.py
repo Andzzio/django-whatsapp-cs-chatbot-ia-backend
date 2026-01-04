@@ -72,7 +72,13 @@ class ProductEmbedding(models.Model):
 
     # Metadata para búsqueda
     search_text = models.TextField()  # name + description normalizado
-    stock_quantity = models.IntegerField(default=0)
+
+    # Stock dividido por tallas
+    stock_s = models.IntegerField(default=0, verbose_name="Stock S")
+    stock_m = models.IntegerField(default=0, verbose_name="Stock M")
+    stock_l = models.IntegerField(default=0, verbose_name="Stock L")
+    stock_xl = models.IntegerField(default=0, verbose_name="Stock XL")
+
     is_available = models.BooleanField(default=True)
 
     # Timestamps
@@ -80,10 +86,22 @@ class ProductEmbedding(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     last_synced = models.DateTimeField(null=True, blank=True)
 
+    @property
+    def total_stock(self):
+        """Stock total sumando todas las tallas"""
+        return self.stock_s + self.stock_m + self.stock_l + self.stock_xl
+
+    def has_stock(self, size=None):
+        """Verifica si hay stock (opcionalmente de una talla específica)"""
+        if size:
+            size_lower = size.lower()
+            return getattr(self, f"stock_{size_lower}", 0) > 0
+        return self.total_stock > 0
+
     class Meta:
         indexes = [
             models.Index(fields=["retailer_id"]),
-            models.Index(fields=["is_available", "stock_quantity"]),
+            models.Index(fields=["is_available"]),
         ]
 
     def __str__(self):
