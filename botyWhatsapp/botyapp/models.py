@@ -223,9 +223,7 @@ class Order(models.Model):
 
     def calculate_totals(self):
         """Calcula subtotal y total"""
-        self.subtotal = sum(
-            item.quantity * item.unit_price for item in self.items.all()
-        )
+        self.subtotal = sum(item.quantity * item.price for item in self.items.all())
         self.total_amount = self.subtotal + self.shipping_cost - self.discount
         self.save(update_fields=["subtotal", "total_amount"])
 

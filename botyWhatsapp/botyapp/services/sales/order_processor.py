@@ -65,7 +65,7 @@ class OrderProcessor:
             order=order,
             product=product,
             quantity=quantity,
-            unit_price=product.price,
+            price=product.price,
             product_name=product.product_name,
         )
 

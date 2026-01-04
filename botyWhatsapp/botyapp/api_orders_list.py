@@ -43,7 +43,8 @@ def get_orders_list(request):
                 {
                     "product_name": item.product_name,
                     "quantity": item.quantity,
-                    "unit_price": float(item.unit_price),
+                    "price": float(item.price),
+                    "size": item.size,  # ✅ Incluir talla
                     "subtotal": float(item.subtotal),
                 }
                 for item in order.items.all()

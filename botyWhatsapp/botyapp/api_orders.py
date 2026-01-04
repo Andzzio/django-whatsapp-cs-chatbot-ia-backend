@@ -72,7 +72,7 @@ def create_order(request, phone):
             from decimal import Decimal
 
             try:
-                raw_price = item.get("unit_price", 0) or item.get("price", 0)
+                raw_price = item.get("price", 0)
                 price_val = Decimal(str(raw_price))
             except (ValueError, TypeError, Exception):
                 price_val = Decimal("0.0")
