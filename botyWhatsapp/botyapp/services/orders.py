@@ -99,6 +99,10 @@ def process_order(order_data, sender_id):
 
             log.debug(f"  ✓ Nombre: {product_name}")
             log.debug(f"  ✓ Cantidad: {quantity}")
+
+            # --- MOD: Agregar "Talla: Por confirmar" al resumen (User Request) ---
+            order_summary += f"{idx}. *{product_name}*\n"
+            order_summary += "   (Talla: Por confirmar)\n"
             order_summary += f"   💵 Precio unitario: {currency} {item_price:.2f}\n"
             order_summary += f"   💰 Subtotal: {currency} {subtotal:.2f}\n\n"
 
@@ -119,7 +123,7 @@ def process_order(order_data, sender_id):
             f"✅ *¡Pedido recibido exitosamente!*\n\n"
             f"{order_summary}\n\n"
             f"📝 *Estado:* Pendiente de confirmación\n"
-            f"👥 Nuestro equipo te contactará pronto para confirmar tallas y detalles.\n\n"
+            f"👥 *ATENCIÓN:* Hemos recibido tu pedido. Un asesor humano revisará las tallas contigo en breve.\n\n"
             f"_Gracias por tu compra_ 🙌✨"
         )
 
@@ -130,6 +134,14 @@ def process_order(order_data, sender_id):
 
         try:
             contact = Contact.objects.get(phone=sender_id)
+
+            # --- MOD: Desactivar Bot y Pedir Atención Humana (User Request) ---
+            contact.is_bot_active = False
+            contact.needs_human_attention = True
+            contact.save()
+            log.info(
+                f"🤖 Bot DESACTIVADO para {sender_id} tras recibir pedido (Handover)."
+            )
 
             # Crear la orden con status PROFORMA (sin tallas asignadas)
             order = Order.objects.create(
