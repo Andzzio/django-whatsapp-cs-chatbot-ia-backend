@@ -37,14 +37,14 @@ def get_dashboard_stats(request):
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-        # 1. & 5. Ventas de Hoy & Ticket Promedio (Optimized Aggregation)
+        # 1. & 5. Ventas de Hoy & Ticket Promedio (Optimized        # Ventas del día (solo órdenes completadas: CONFIRMED, SHIPPED, DELIVERED)
         today_metrics = (
             Order.objects.filter(created_at__gte=today_start)
-            .exclude(status="CANCELLED")
-            .aggregate(total_sales=Sum("total_amount"), total_count=Count("id"))
+            .filter(status__in=["CONFIRMED", "SHIPPED", "DELIVERED"])
+            .aggregate(total_sales=Sum("total_amount"), total_orders=Count("id"))
         )
         sales_today = today_metrics["total_sales"] or 0.0
-        orders_today_count = today_metrics["total_count"] or 0
+        orders_today_count = today_metrics["total_orders"] or 0
 
         avg_ticket = 0.0
         if orders_today_count > 0:

@@ -131,6 +131,59 @@ def process_order(order_data, sender_id):
 
         send_whatsapp_message(sender_id, confirmation_message)
 
+        # ✅ CREAR ORDEN EN BASE DE DATOS
+        from botyapp.models import Contact, Order, OrderItem, ProductEmbedding
+
+        try:
+            contact = Contact.objects.get(phone=sender_id)
+
+            # Crear la orden
+            order = Order.objects.create(
+                contact=contact,
+                status="PENDING",
+                checkout_stage="COMPLETED",
+                shipping_cost=shipping_cost,
+                subtotal=total_price,
+                total_amount=total_with_shipping,
+            )
+
+            # Crear items de la orden
+            for item in product_items:
+                product_retailer_id = item.get("product_retailer_id")
+                quantity = item.get("quantity", 1)
+                item_price = float(item.get("item_price", 0))
+
+                try:
+                    # Buscar producto en BD
+                    product = ProductEmbedding.objects.get(
+                        retailer_id=product_retailer_id
+                    )
+
+                    OrderItem.objects.create(
+                        order=order,
+                        product=product,
+                        quantity=quantity,
+                        unit_price=item_price,
+                    )
+                except ProductEmbedding.DoesNotExist:
+                    log.warning(
+                        f"⚠️ Producto {product_retailer_id} no encontrado en BD, saltando item"
+                    )
+                    continue
+
+            # Recalcular totales
+            order.calculate_totals()
+
+            log.debug(f"✅ Orden #{order.id} creada en BD exitosamente")
+
+        except Contact.DoesNotExist:
+            log.error(f"❌ Contacto {sender_id} no encontrado")
+        except Exception as db_error:
+            log.error(f"❌ Error creando orden en BD: {db_error}")
+            import traceback
+
+            traceback.print_exc()
+
         log.debug("✅ Orden procesada exitosamente")
         log.debug(f"💰 Total: {currency} {total_price:.2f}")
         log.debug(f"{'=' * 50}\n")

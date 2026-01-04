@@ -89,9 +89,10 @@ def get_analytics_stats(request):
         )
 
         # 5. Ventas totales del período y métricas relacionadas
+        # Solo contar órdenes completadas: CONFIRMED, SHIPPED, DELIVERED
         sales_metrics = (
             Order.objects.filter(created_at__gte=period_start)
-            .exclude(status="CANCELLED")
+            .filter(status__in=["CONFIRMED", "SHIPPED", "DELIVERED"])
             .aggregate(total_sales=Sum("total_amount"), total_orders=Count("id"))
         )
 
