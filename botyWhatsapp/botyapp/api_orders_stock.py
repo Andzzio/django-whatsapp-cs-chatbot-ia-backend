@@ -25,97 +25,119 @@ def deduct_order_stock(request, order_id):
     except Order.DoesNotExist:
         return JsonResponse({"error": "Order not found"}, status=404)
 
-    # Validar que no se haya descontado ya, A MENOS que haya sido revertido
-    if order.stock_deducted and not order.stock_reverted:
+    # Llamar lógica interna
+    result = _deduct_stock_internal(order)
+
+    if result["success"]:
         return JsonResponse(
             {
+                "status": "success",
+                "order_id": order.id,
+                "deducted_items": result["deducted_items"],
+            }
+        )
+    else:
+        status_code = 400
+        # Check if error is 'Stock already deducted' (logic from previous code)
+        # For simplicity, returning 400 is fine as internal errors return detailed messages
+        return JsonResponse(
+            {"error": result["error"], "details": result.get("details")},
+            status=status_code,
+        )
+
+
+def _deduct_stock_internal(order):
+    """
+    Internal logic to deduct stock from an order.
+    Returns dict: {'success': bool, 'error': str, 'details': list, 'deducted_items': list}
+    """
+    try:
+        # Validar que no se haya descontado ya, A MENOS que haya sido revertido
+        if order.stock_deducted and not order.stock_reverted:
+            return {
+                "success": False,
                 "error": "Stock already deducted for this order",
-                "deducted_at": (
-                    order.stock_deducted_at.isoformat()
-                    if order.stock_deducted_at
-                    else None
-                ),
-            },
-            status=400,
-        )
+            }
 
-    # Verificar que todos los items tengan talla
-    items_without_size = []
-    for item in order.items.all():
-        if not item.size:
-            items_without_size.append(item.product_name)
+        # Verificar que todos los items tengan talla
+        items_without_size = []
+        for item in order.items.all():
+            if not item.size:
+                items_without_size.append(item.product_name)
 
-    if items_without_size:
-        return JsonResponse(
-            {
+        if items_without_size:
+            return {
+                "success": False,
                 "error": "All items must have a size assigned before deducting stock",
-                "items_without_size": items_without_size,
-            },
-            status=400,
-        )
+                "details": items_without_size,
+            }
 
-    # Verificar stock suficiente por talla
-    insufficient_stock = []
-    for item in order.items.all():
-        stock_field = f"stock_{item.size.lower()}"
-        current_stock = getattr(item.product, stock_field, 0)
+        # Verificar stock suficiente por talla
+        insufficient_stock = []
+        for item in order.items.all():
+            stock_field = f"stock_{item.size.lower()}"
+            current_stock = getattr(item.product, stock_field, 0)
 
-        if current_stock < item.quantity:
-            insufficient_stock.append(
+            if current_stock < item.quantity:
+                insufficient_stock.append(
+                    {
+                        "product": item.product_name,
+                        "size": item.size,
+                        "needed": item.quantity,
+                        "available": current_stock,
+                    }
+                )
+
+        if insufficient_stock:
+            return {
+                "success": False,
+                "error": "Insufficient stock",
+                "details": insufficient_stock,
+            }
+
+        # Descontar stock
+        deducted_items = []
+        for item in order.items.all():
+            product = item.product
+            stock_field = f"stock_{item.size.lower()}"
+            current_stock = getattr(product, stock_field)
+            new_stock = current_stock - item.quantity
+
+            setattr(product, stock_field, new_stock)
+
+            # Auto-marcar como no disponible si todo el stock llega a 0
+            if product.total_stock == 0:
+                product.is_available = False
+
+            product.save()
+
+            deducted_items.append(
                 {
-                    "product": item.product_name,
+                    "product_name": item.product_name,
                     "size": item.size,
-                    "needed": item.quantity,
-                    "available": current_stock,
+                    "quantity_deducted": item.quantity,
+                    "new_stock": new_stock,
                 }
             )
 
-    if insufficient_stock:
-        return JsonResponse(
-            {"error": "Insufficient stock", "details": insufficient_stock}, status=400
-        )
+        # Marcar orden
+        order.stock_deducted = True
+        order.stock_reverted = False  # Resetear si estaba revertido
+        order.stock_deducted_at = timezone.now()
+        order.save()
 
-    # Descontar stock
-    deducted_items = []
-    for item in order.items.all():
-        product = item.product
-        stock_field = f"stock_{item.size.lower()}"
-        current_stock = getattr(product, stock_field)
-        new_stock = current_stock - item.quantity
+        # Invalidar cache de productos
+        if hasattr(settings, "CATALOG_ID"):
+            cache_key = f"catalog_products_{settings.CATALOG_ID}"
+            cache.delete(cache_key)
 
-        setattr(product, stock_field, new_stock)
+        log.info(f"Stock deducted for order #{order.id}: {len(deducted_items)} items")
 
-        # Auto-marcar como no disponible si todo el stock llega a 0
-        if product.total_stock == 0:
-            product.is_available = False
+        return {"success": True, "deducted_items": deducted_items}
 
-        product.save()
-
-        deducted_items.append(
-            {
-                "product_name": item.product_name,
-                "size": item.size,
-                "quantity_deducted": item.quantity,
-                "new_stock": new_stock,
-            }
-        )
-
-    # Marcar orden
-    order.stock_deducted = True
-    order.stock_reverted = False  # Resetear si estaba revertido
-    order.stock_deducted_at = timezone.now()
-    order.save()
-
-    # Invalidar cache de productos
-    if hasattr(settings, "CATALOG_ID"):
-        cache_key = f"catalog_products_{settings.CATALOG_ID}"
-        cache.delete(cache_key)
-
-    log.info(f"Stock deducted for order #{order.id}: {len(deducted_items)} items")
-
-    return JsonResponse(
-        {"status": "success", "order_id": order.id, "deducted_items": deducted_items}
-    )
+    except Exception as e:
+        log.error(f"Error deducting stock internally: {e}")
+        return {"success": False, "error": str(e)}
 
 
 @csrf_exempt

@@ -125,6 +125,21 @@ def create_order(request, phone):
 
         order.calculate_totals()
 
+        # ✅ Auto-descontar stock si es orden confirmada (Dashboard/Con Tallas)
+        if order.status == "PENDING":
+            try:
+                from .api_orders_stock import _deduct_stock_internal
+
+                result = _deduct_stock_internal(order)
+                if not result["success"]:
+                    log.error(f"⚠️ Error auto-deducting stock: {result['error']}")
+                    # Podríamos decidir fallar la creación o solo loguear.
+                    # Por ahora solo logueamos para no romper el flujo UX.
+                else:
+                    log.info(f"✅ Stock auto-deducted for new order #{order.id}")
+            except Exception as e:
+                log.error(f"❌ Critical error auto-deducting stock: {e}")
+
         # No generamos mensaje de texto aquí. El frontend se encarga de la presentación.
         # Solo devolvemos la data estructurada.
 
