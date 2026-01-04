@@ -131,10 +131,10 @@ def process_order(order_data, sender_id):
         try:
             contact = Contact.objects.get(phone=sender_id)
 
-            # Crear la orden con status PENDING_SIZE (sin tallas asignadas)
+            # Crear la orden con status PROFORMA (sin tallas asignadas)
             order = Order.objects.create(
                 contact=contact,
-                status="PENDING_SIZE",  # Estado: esperando asignación de tallas
+                status="PROFORMA",  # Estado: Proforma (antes PENDING_SIZE)
                 checkout_stage="COMPLETED",
                 shipping_cost=shipping_cost,
                 subtotal=total_price,
