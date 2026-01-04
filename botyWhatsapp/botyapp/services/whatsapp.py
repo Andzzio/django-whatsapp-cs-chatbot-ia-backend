@@ -8,14 +8,16 @@ from botyapp.models import Contact, Message
 import copy
 
 
-def send_whatsapp_message(receptor_wsp_id, text_answer, reply_to_message_id=None):
+def send_whatsapp_message(
+    receptor_wsp_id, text_answer, reply_to_message_id=None, create_db_record=True
+):
     headers = {
         "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
         "Content-Type": "application/json",
     }
     data = {
         "messaging_product": "whatsapp",
-        "to": receptor_wsp_id,
+        "to": str(receptor_wsp_id).replace("+", "").replace(" ", "").strip(),
         "type": "text",
         "text": {
             "body": text_answer,
@@ -32,26 +34,31 @@ def send_whatsapp_message(receptor_wsp_id, text_answer, reply_to_message_id=None
         response.raise_for_status()
         res_json = response.json()
         log.debug(f"Mensaje enviado exitosamente: {res_json}")
-        try:
-            contact_obj = Contact.objects.get(phone=receptor_wsp_id)
-            wamid = res_json["messages"][0]["id"] if "messages" in res_json else None
 
-            # Buscamos el objeto mensaje padre si existe
-            reply_to_obj = None
-            if reply_to_message_id:
-                reply_to_obj = Message.objects.filter(
-                    message_id=reply_to_message_id
-                ).first()
+        if create_db_record:
+            try:
+                contact_obj = Contact.objects.get(phone=receptor_wsp_id)
+                wamid = (
+                    res_json["messages"][0]["id"] if "messages" in res_json else None
+                )
 
-            Message.objects.create(
-                contact=contact_obj,
-                text=text_answer,
-                is_bot=True,
-                message_id=wamid,
-                reply_to=reply_to_obj,
-            )
-        except Contact.DoesNotExist:
-            pass
+                # Buscamos el objeto mensaje padre si existe
+                reply_to_obj = None
+                if reply_to_message_id:
+                    reply_to_obj = Message.objects.filter(
+                        message_id=reply_to_message_id
+                    ).first()
+
+                Message.objects.create(
+                    contact=contact_obj,
+                    text=text_answer,
+                    is_bot=True,
+                    message_id=wamid,
+                    reply_to=reply_to_obj,
+                )
+            except Contact.DoesNotExist:
+                pass
+        return res_json
         return res_json
     except requests.exceptions.RequestException as e:
         log.error(f"Error al enviar mensaje de Whatsapp {e}")
@@ -460,9 +467,10 @@ def download_and_optimize_image(url):
 
         # Procesar con PIL
         image = Image.open(io.BytesIO(response.content))
-        
+
         # Auto-rotar según EXIF orientation (fix para imágenes rotadas)
         from PIL import ImageOps
+
         image = ImageOps.exif_transpose(image)
 
         # Redimensionar si es muy grande (ej: > 1024px)

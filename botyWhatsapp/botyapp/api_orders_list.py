@@ -123,10 +123,13 @@ def update_order_status(request, order_id):
             and not order.stock_reverted
         ):
             try:
-                from .api_orders_stock import revert_order_stock
+                from .api_orders_stock import _revert_stock_internal
 
-                revert_order_stock(order)
-                log.info(f"✅ Auto-reverted stock for cancelled order #{order.id}")
+                result = _revert_stock_internal(order)
+                if result["success"]:
+                    log.info(f"✅ Auto-reverted stock for cancelled order #{order.id}")
+                else:
+                    log.error(f"Failed to auto-revert stock: {result['error']}")
             except Exception as e:
                 # No bloqueamos el cambio de estado, pero logueamos el error
                 log.error(f"Error auto-reverting stock: {e}")

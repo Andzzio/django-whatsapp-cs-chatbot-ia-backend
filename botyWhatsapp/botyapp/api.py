@@ -544,7 +544,23 @@ def send_message_to_contact(request, phone):
                 except Message.DoesNotExist:
                     log.warning(f"Reply ID {reply_to_db_id} not found in DB.")
 
-            send_whatsapp_message(phone, text, reply_to_message_id=wamid_context)
+            response_wa = send_whatsapp_message(
+                phone, text, reply_to_message_id=wamid_context, create_db_record=False
+            )
+
+            # Si falla el envío a WhatsApp, retornamos error y NO creamos mensaje en DB
+            if not response_wa:
+                error_msg = "CRITICAL: Fallo al enviar mensaje a WhatsApp API. No se guardó en DB."
+                print(f"\033[91m{error_msg}\033[0m")  # Imprimir en ROJO en consola
+                log.error(error_msg)
+                return JsonResponse(
+                    {"error": "Failed to send message to WhatsApp API"}, status=500
+                )
+
+            # Extraer WAM ID para guardarlo
+            wamid = (
+                response_wa["messages"][0]["id"] if "messages" in response_wa else None
+            )
 
             # Limpieza automática de alerta de ayuda
             if contact.needs_human_attention:
@@ -552,12 +568,14 @@ def send_message_to_contact(request, phone):
                 contact.save()
 
             # Crear registro en DB
+            # IMPORTANTE: message_id=wamid para tracking
             new_msg = Message.objects.create(
                 contact=contact,
                 text=text,
                 is_bot=True,
                 message_type="text",
                 reply_to=original_msg,
+                message_id=wamid,
             )
 
             # FIX: Recargar el mensaje con reply_to poblado para devolverlo correctamente
