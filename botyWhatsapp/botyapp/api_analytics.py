@@ -262,7 +262,6 @@ def get_analytics_trends(request):
 
         elif period == "year":
             # Generar meses
-            import calendar
 
             current = period_start
 

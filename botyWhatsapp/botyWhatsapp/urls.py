@@ -26,6 +26,7 @@ from botyapp import (
     api_analytics,
     api_stock,
     api_orders_stock,
+    api_products_excel,
 )
 
 urlpatterns = [
@@ -120,5 +121,16 @@ urlpatterns = [
         "api/orders/<int:order_id>/deduct-stock/",
         api_orders_stock.deduct_order_stock,
         name="deduct_order_stock",
+    ),
+    # --- EXCEL IMPORT/EXPORT ---
+    path(
+        "api/products/export/excel/",
+        api_products_excel.export_products_excel,
+        name="export_products_excel",
+    ),
+    path(
+        "api/products/import/excel/",
+        api_products_excel.import_products_excel,
+        name="import_products_excel",
     ),
 ]
