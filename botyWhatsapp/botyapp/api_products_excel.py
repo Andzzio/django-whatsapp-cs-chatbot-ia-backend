@@ -5,7 +5,9 @@ from django.core.cache import cache
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
 from .models import ProductEmbedding
-from logger import log
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @csrf_exempt
@@ -79,11 +81,11 @@ def export_products_excel(request):
         response["Content-Disposition"] = 'attachment; filename="inventario.xlsx"'
         wb.save(response)
 
-        log.info(f"Excel exported: {products.count()} products")
+        logger.info(f"Excel exported: {products.count()} products")
         return response
 
     except Exception as e:
-        log.error(f"Error exporting Excel: {e}")
+        logger.error(f"Error exporting Excel: {e}")
         return HttpResponse(f"Error: {str(e)}", status=500)
 
 
@@ -169,7 +171,7 @@ def import_products_excel(request):
             cache_key = f"catalog_products_{settings.CATALOG_ID}"
             cache.delete(cache_key)
 
-        log.info(
+        logger.info(
             f"Excel imported: {updated_count} products updated, "
             f"{skipped_count} skipped, {len(errors)} errors"
         )
@@ -185,5 +187,5 @@ def import_products_excel(request):
         )
 
     except Exception as e:
-        log.error(f"Error importing Excel: {e}")
+        logger.error(f"Error importing Excel: {e}")
         return JsonResponse({"error": str(e)}, status=500)

@@ -373,12 +373,17 @@ def get_media(request, media_id):
         # return StreamingHttpResponse(media_response.raw, content_type=media_response.headers.get("Content-Type"))
         # Pero usuario pidió COMPRESIÓN y CACHÉ.
 
+        # Aplicar rotación EXIF automática
+        from PIL import ImageOps
+
         image = Image.open(io.BytesIO(media_response.content))
+        image = ImageOps.exif_transpose(image)  # Auto-rotar según EXIF
 
         # Redimensionar seguro (Max 1920px)
         if image.width > 1920 or image.height > 1920:
             image.thumbnail((1920, 1920))
 
+        # Comprimir a JPEG
         # Convertir a RGB si es necesario
         if image.mode in ("RGBA", "P"):
             image = image.convert("RGB")

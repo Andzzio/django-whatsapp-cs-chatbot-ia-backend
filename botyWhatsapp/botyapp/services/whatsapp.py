@@ -460,6 +460,10 @@ def download_and_optimize_image(url):
 
         # Procesar con PIL
         image = Image.open(io.BytesIO(response.content))
+        
+        # Auto-rotar según EXIF orientation (fix para imágenes rotadas)
+        from PIL import ImageOps
+        image = ImageOps.exif_transpose(image)
 
         # Redimensionar si es muy grande (ej: > 1024px)
         max_size = (1024, 1024)
