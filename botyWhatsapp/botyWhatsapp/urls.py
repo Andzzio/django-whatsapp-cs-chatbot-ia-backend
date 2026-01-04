@@ -122,6 +122,11 @@ urlpatterns = [
         api_orders_stock.deduct_order_stock,
         name="deduct_order_stock",
     ),
+    path(
+        "api/orders/<int:order_id>/revert-stock/",
+        api_orders_stock.revert_order_stock,
+        name="revert_order_stock",
+    ),
     # --- ORDER ITEMS MANAGEMENT ---
     path(
         "api/orders/items/<int:item_id>/size/",

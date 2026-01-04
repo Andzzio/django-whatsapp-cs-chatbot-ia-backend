@@ -201,6 +201,7 @@ class Order(models.Model):
     # Stock control
     stock_deducted = models.BooleanField(default=False)
     stock_deducted_at = models.DateTimeField(null=True, blank=True)
+    stock_reverted = models.BooleanField(default=False)  # ✅ Nuevo
 
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
