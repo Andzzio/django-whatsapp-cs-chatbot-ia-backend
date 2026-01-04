@@ -112,9 +112,9 @@ urlpatterns = [
     ),
     # --- STOCK MANAGEMENT ---
     path(
-        "api/products/<str:retailer_id>/stock/",
-        api_stock.update_product_stock,
-        name="update_stock",
+        "api/products/stock/",
+        api_stock.update_stock,
+        name="update_product_stock",
     ),
     # --- ORDERS STOCK DEDUCTION ---
     path(

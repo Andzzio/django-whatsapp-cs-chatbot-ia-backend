@@ -1,28 +1,22 @@
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
-from django.core.cache import cache
 from .models import ProductEmbedding
 from logger import log
+import json
 
 
 @csrf_exempt
-def update_product_stock(request, retailer_id):
+def update_stock(request):
     """
-    PUT /api/products/<retailer_id>/stock/
-    Actualiza stock y disponibilidad de un producto
-
-    Body:
-    {
-        "stock_quantity": 50,
-        "is_available": true  // Opcional
-    }
-
-    Returns:
-    {
-        "status": "success",
-        "retailer_id": "PROD001",
-        "stock_quantity": 50,
+    Endpoint para actualizar stock por tallas de un producto
+    POST /api/products/stock/
+    Body: {
+        "retailer_id": "ABC123",
+        "stock_s": 10,
+        "stock_m": 15,
+        "stock_l": 8,
+        "stock_xl": 5,
         "is_available": true
     }
     """
@@ -30,74 +24,75 @@ def update_product_stock(request, retailer_id):
     if token != settings.DASH_TOKEN:
         return JsonResponse({"error": "Unauthorized"}, status=403)
 
-    if request.method != "PUT":
-        return JsonResponse({"error": "Method not allowed"}, status=405)
-
-    try:
-        import json
-
-        data = json.loads(request.body)
-        stock_quantity = data.get("stock_quantity")
-        is_available = data.get("is_available")  # Opcional
-
-        # Validación de stock
-        if stock_quantity is None:
-            return JsonResponse({"error": "stock_quantity is required"}, status=400)
-
+    if request.method == "POST":
         try:
-            stock_quantity = int(stock_quantity)
-        except (ValueError, TypeError):
-            return JsonResponse(
-                {"error": "stock_quantity must be a valid integer"}, status=400
+            data = json.loads(request.body)
+            retailer_id = data.get("retailer_id")
+
+            if not retailer_id:
+                return JsonResponse({"error": "retailer_id is required"}, status=400)
+
+            # Buscar producto
+            try:
+                product = ProductEmbedding.objects.get(retailer_id=retailer_id)
+            except ProductEmbedding.DoesNotExist:
+                return JsonResponse(
+                    {"error": f"Product {retailer_id} not found"}, status=404
+                )
+
+            # Actualizar stocks por talla
+            if "stock_s" in data:
+                product.stock_s = int(data["stock_s"])
+            if "stock_m" in data:
+                product.stock_m = int(data["stock_m"])
+            if "stock_l" in data:
+                product.stock_l = int(data["stock_l"])
+            if "stock_xl" in data:
+                product.stock_xl = int(data["stock_xl"])
+
+            # Actualizar disponibilidad
+            if "is_available" in data:
+                product.is_available = bool(data["is_available"])
+            else:
+                # Auto-ajustar disponibilidad basado en stock total
+                if product.total_stock == 0:
+                    product.is_available = False
+                elif product.total_stock > 0 and not product.is_available:
+                    product.is_available = True
+
+            product.save()
+
+            log.debug(
+                f"Stock updated for {retailer_id}: S={product.stock_s}, M={product.stock_m}, "
+                f"L={product.stock_l}, XL={product.stock_xl}, available={product.is_available}"
             )
 
-        if stock_quantity < 0:
-            return JsonResponse({"error": "stock_quantity must be >= 0"}, status=400)
+            # Invalidar caché
+            from django.core.cache import cache
 
-        # Buscar producto
-        try:
-            product = ProductEmbedding.objects.get(retailer_id=retailer_id)
-        except ProductEmbedding.DoesNotExist:
-            return JsonResponse({"error": "Product not found"}, status=404)
-
-        # Actualizar stock
-        product.stock_quantity = stock_quantity
-
-        # Actualizar disponibilidad
-        if is_available is not None:
-            # Si se envió explícitamente, usar ese valor
-            product.is_available = bool(is_available)
-        else:
-            # Auto-calcular basado en stock
-            if stock_quantity == 0:
-                product.is_available = False
-            elif stock_quantity > 0 and not product.is_available:
-                # Si hay stock y estaba marcado como no disponible, activar
-                product.is_available = True
-
-        product.save()
-
-        # Invalidar cache del catálogo
-        if hasattr(settings, "CATALOG_ID"):
             cache_key = f"catalog_products_{settings.CATALOG_ID}"
             cache.delete(cache_key)
 
-        log.info(
-            f"Stock updated for {retailer_id}: stock={stock_quantity}, "
-            f"available={product.is_available}"
-        )
+            return JsonResponse(
+                {
+                    "status": "success",
+                    "product": {
+                        "retailer_id": product.retailer_id,
+                        "name": product.product_name,
+                        "stock_s": product.stock_s,
+                        "stock_m": product.stock_m,
+                        "stock_l": product.stock_l,
+                        "stock_xl": product.stock_xl,
+                        "total_stock": product.total_stock,
+                        "is_available": product.is_available,
+                    },
+                }
+            )
 
-        return JsonResponse(
-            {
-                "status": "success",
-                "retailer_id": retailer_id,
-                "stock_quantity": product.stock_quantity,
-                "is_available": product.is_available,
-            }
-        )
+        except ValueError as e:
+            return JsonResponse({"error": f"Invalid data: {str(e)}"}, status=400)
+        except Exception as e:
+            log.error(f"Error updating stock: {e}")
+            return JsonResponse({"error": str(e)}, status=500)
 
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON"}, status=400)
-    except Exception as e:
-        log.error(f"Error updating stock for {retailer_id}: {e}")
-        return JsonResponse({"error": str(e)}, status=500)
+    return JsonResponse({"error": "Method not allowed"}, status=405)
