@@ -99,13 +99,19 @@ def sync_catalog_products(catalog_id):
                             price_val = sale_val
 
                     # Obtener información de stock desde ProductEmbedding (si existe)
-                    stock_quantity = 0
+                    stock_s = 0
+                    stock_m = 0
+                    stock_l = 0
+                    stock_xl = 0
                     is_available = True
                     try:
                         product_embedding = ProductEmbedding.objects.get(
                             retailer_id=retailer_id
                         )
-                        stock_quantity = product_embedding.stock_quantity
+                        stock_s = product_embedding.stock_s
+                        stock_m = product_embedding.stock_m
+                        stock_l = product_embedding.stock_l
+                        stock_xl = product_embedding.stock_xl
                         is_available = product_embedding.is_available
                     except ProductEmbedding.DoesNotExist:
                         pass  # Usar valores por defecto
@@ -120,8 +126,11 @@ def sync_catalog_products(catalog_id):
                         "retailer_id": retailer_id,
                         "image_url": product.get("image_url", ""),
                         "phash": None,
-                        "stock_quantity": stock_quantity,  # ← NUEVO
-                        "is_available": is_available,  # ← NUEVO
+                        "stock_s": stock_s,  # ✅ Stock por talla
+                        "stock_m": stock_m,
+                        "stock_l": stock_l,
+                        "stock_xl": stock_xl,
+                        "is_available": is_available,
                     }
 
                     # ⚠️ OPTIMIZACIÓN: Desactivamos procesamiento de imagen en tiempo real
