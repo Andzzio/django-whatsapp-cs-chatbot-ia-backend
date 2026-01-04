@@ -521,6 +521,8 @@ def send_message_to_contact(request, phone):
             text = data.get("text")
             reply_to_db_id = data.get("reply_to_id")  # ID numérico de la DB (Django)
 
+            print(f"📨 DEBUG API: Recibido request for {phone}. Text: {text}")
+
             if not text or text.strip() == "":
                 return JsonResponse({"error": "Text Empty"}, status=400)
 
