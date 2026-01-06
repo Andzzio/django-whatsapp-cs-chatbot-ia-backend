@@ -163,7 +163,7 @@ def handle_incoming_message(message_data):
             if "sender_id" in locals():
                 send_whatsapp_message(
                     sender_id,
-                    "🚧 Tuve un pequeño error interno. ¿Podrías intentar decírmelo de nuevo? 🙏",
+                    f"🚧 Tuve un pequeño error interno: {str(e)[:100]}... 🙏",
                 )
         except Exception:
             pass  # Si falla el mensaje de error, no podemos hacer nada más.

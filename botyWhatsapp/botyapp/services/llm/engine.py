@@ -1,5 +1,4 @@
 import re
-import copy
 from google import genai
 from django.conf import settings
 from logger import log
@@ -97,7 +96,8 @@ class LLMEngine:
         Núcleo unificado de ejecución: Pensar -> Ejecutar -> Repensar.
         Retorna el TEXTO FINAL de la respuesta.
         """
-        gemini_input = copy.deepcopy(initial_gemini_input)
+        # Shallow copy is safer for complex objects like genai types
+        gemini_input = list(initial_gemini_input)
         final_text_response = None
         should_stop_conversation_early = (
             False  # Flag para detener si un tool ya respondió todo
