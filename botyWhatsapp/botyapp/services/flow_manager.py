@@ -236,12 +236,14 @@ class FlowManager:
 
         log.info(f"🚨 HOT LEAD: Handoff triggered for {contact.name}")
 
-        # 3. Notificar y Bloquear
+        # 3. Notificar y Bloquear (Make it sound like a human checking stock)
         send_whatsapp_message(
             contact.phone,
-            "¡Decisión top! 🛍️✨\n\nHe reservado tu intención de compra.\n\n**Un asesor humano está revisando el stock AHORA mismo** y te escribirá para pedirte tus datos de envío. 👨‍💻\n\n(Espera su mensaje...)",
+            "¡Excelente elección! 🛍️✨\n\nDéjame verificar el stock en almacén ahora mismo. 🧐\n\nEn unos minutos te confirmo los detalles para coordinar el envío. ⏳",
         )
 
+        # Disable bot so the toggle turns OFF in the App
+        contact.is_bot_active = False
         contact.needs_human_attention = True
         contact.save()
         FlowManager.transition_to(contact, Contact.States.LOCKED_HUMAN)
@@ -251,6 +253,8 @@ class FlowManager:
     def _handoff_distressed(contact):
         FlowManager._update_lead_status(contact, "DISTRESSED")
         send_whatsapp_message(contact.phone, "Entiendo, un humano te atenderá. 👨‍💻")
+        # Disable bot logic
+        contact.is_bot_active = False
         contact.needs_human_attention = True
         FlowManager.transition_to(contact, Contact.States.LOCKED_HUMAN)
 
