@@ -10,6 +10,25 @@ class Contact(models.Model):
     needs_human_attention = models.BooleanField(default=False)  # Solicitud de vendedor
     bot_disabled_at = models.DateTimeField(null=True, blank=True)
 
+    # --- STATE MACHINE FIELDS (FSM) ---
+    class States(models.TextChoices):
+        INITIAL = "initial", "Inicial"
+        BROWSING_CATALOG = "browsing_catalog", "Viendo Catálogo"
+        PRODUCT_SELECTION = "product_selection", "Seleccionando Producto"
+        CONFIRM_CART = "confirm_cart", "Confirmando Carrito"
+        COLLECT_ADDRESS = "collect_address", "Capturando Dirección"
+        SELECT_PAYMENT = "select_payment", "Eligiendo Pago"
+        UPLOAD_PROOF = "upload_proof", "Subiendo Comprobante"
+        COMPLETED = "completed", "Completado"
+        LOCKED_HUMAN = "locked_human", "Soporte Humano (Bloqueado)"
+
+    current_state = models.CharField(
+        max_length=50, choices=States.choices, default=States.INITIAL
+    )
+    flow_context = models.JSONField(
+        default=dict, blank=True
+    )  # Datos temporales del flujo
+
     # CRM Fields
     tags = models.JSONField(default=list, blank=True)  # ["interesado_vestidos", "vip"]
     lead_score = models.IntegerField(default=0)  # 0-100

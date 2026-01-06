@@ -9,7 +9,7 @@ import os
 from PIL import Image
 import io
 from django.utils import timezone
-from .views import send_whatsapp_message
+from .services.whatsapp import send_whatsapp_message
 from django.core.cache import cache
 from .services.catalog import sync_catalog_products
 from logger import log
@@ -316,6 +316,8 @@ def sync_data(request):
                         else contact.created_at.isoformat()
                     ),
                     "tags": contact.tags,
+                    "current_state": contact.current_state,  # Nuevo campo FSM
+                    "flow_context": contact.flow_context,  # Nuevo campo FSM
                 }
             )
 
@@ -776,11 +778,16 @@ def reset_memory(request, phone):
         # 1. Borrar mensajes
         deleted_count, _ = Message.objects.filter(contact=contact).delete()
 
-        # 2. Resetear ConversationState
+        # 2. Resetear ConversationState & FSM (New Architecture)
         if hasattr(contact, "conversation_state"):
             contact.conversation_state.current_stage = "initial"
-            contact.conversation_state.context_data = {}  # Limpiar datos temporales
+            contact.conversation_state.context_data = {}
             contact.conversation_state.save()
+
+        # Reset FSM
+        contact.current_state = Contact.States.INITIAL
+        contact.flow_context = {}
+        contact.save()
 
         # 3. Enviar mensaje de confirmación (Opcional, dashboard puede decidir si enviarlo)
         # body = json.loads(request.body.decode("utf-8"))
@@ -788,7 +795,7 @@ def reset_memory(request, phone):
         #     send_whatsapp_message(phone, "🧹 *Memoria reiniciada por administración.*")
 
         log.info(
-            f"🧹 Memory reset via API for {phone}. Deleted {deleted_count} messages."
+            f"🧹 Memory & State reset via API for {phone}. Deleted {deleted_count} messages."
         )
 
         return JsonResponse(

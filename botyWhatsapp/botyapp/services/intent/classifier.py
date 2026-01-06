@@ -49,15 +49,30 @@ class DeterministicStrategy(IntentStrategy):
     }
 
     def detect(self, text: str) -> Optional[IntentResult]:
+        import difflib
+
         text_lower = text.lower().strip()
 
         # 1. Exact or Partial Match logic optimization
-        # Iteramos sobre los intents conocidos
         for action, keywords in self.KEYWORDS.items():
-            if any(k in text_lower for k in keywords):
-                return IntentResult(
-                    action=action, confidence=1.0, source="deterministic"
-                )
+            for k in keywords:
+                # A. Contención directa (Rápida)
+                if k in text_lower:
+                    return IntentResult(
+                        action=action, confidence=1.0, source="deterministic_exact"
+                    )
+
+                # B. Fuzzy Match (Tolerancia a typos: 'katalogo', 'catálogo')
+                # Solo si la palabra es suficientemente larga para evitar falsos positivos
+                if len(k) > 4:
+                    # Buscamos similitud palabra por palabra en el input
+                    input_words = text_lower.split()
+                    matches = difflib.get_close_matches(k, input_words, n=1, cutoff=0.8)
+                    if matches:
+                        log.debug(f"🔍 Fuzzy Match: '{matches[0]}' ~= '{k}'")
+                        return IntentResult(
+                            action=action, confidence=0.85, source="deterministic_fuzzy"
+                        )
         return None
 
 
@@ -98,9 +113,11 @@ class GenerativeStrategy(IntentStrategy):
 
                 # Mapear intents a acciones internas
                 action = "USE_LLM_ENGINE"
-                if intent in ["ordering", "product_inquiry"]:
-                    # El MessageHandler interceptará esto para mostrar catálogo
-                    pass
+
+                # REGLA DE NEGOCIO: Si la intención es ver productos o preguntar precios,
+                # la acción CORRECTA es mostrar el catálogo. No dejar al LLM divagar.
+                if intent in ["ordering", "product_inquiry", "product_search"]:
+                    action = "show_catalog"
 
                 return IntentResult(
                     action=action,

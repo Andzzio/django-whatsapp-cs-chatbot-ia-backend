@@ -1,331 +1,169 @@
-from datetime import datetime
-from logger import log
-from django.db import IntegrityError
+from django.utils import timezone
 from botyapp.models import Contact, Message
-from botyapp.services.whatsapp import (
-    mark_whatsapp_read,
-)
-from botyapp.services.users import cancel_timer
-from botyapp.services.llm.engine import llm_engine
+from botyapp.services.whatsapp import send_whatsapp_message, mark_whatsapp_read
+from botyapp.services.intent.classifier import intent_classifier
+from botyapp.services.flow_manager import FlowManager
+from botyapp.services.llm.engine import LLMEngine
+from logger import log
+import threading
 
 
-class MessageHandler:
+def handle_incoming_message(message_data):
     """
-    Orquestador de mensajes entrantes.
-    Maneja el flujo: Webhook -> DB -> Validaciones -> IA / Tool.
+    MASTER ROUTER (Updated 2026 - Hybrid FSM Architecture)
+
+    Flujo:
+    1. Validaciones Técnicas (Deduplicación, estado activo).
+    2. Enrutamiento por ESTADO (State-Driven):
+       - Si el usuario está en un flujo (ej: Checkout), FlowManager toma el control.
+       - Si es Initial, IntentClassifier decide.
+    3. Fallback a LLM (Conversación libre).
+    4. Global Safety Net (Captura de errores críticos).
     """
 
-    @staticmethod
-    def process_incoming(
-        sender_id,
-        raw_text,
-        timestamp,
-        message_id,
-        media_id=None,
-        media_type="image",
-        reply_to_message_id=None,
-    ):
+    # --- 0. SAFETY NET (GLOBAL ERROR HANDLER) ---
+    try:
+        # Extracción segura de datos básicos
+        entry = message_data["entry"][0]
+        changes = entry["changes"][0]
+        value = changes["value"]
+
+        # Ignorar actualizaciones de estado (sent, delivered, read)
+        if "messages" not in value:
+            return
+
+        message = value["messages"][0]
+        sender_id = message["from"]  # Phone number
+        message_id = message["id"]
+        timestamp = message["timestamp"]
+
+        # Soporte para diversos tipos de mensaje
+        text_body = ""
+        message_type = message.get("type", "text")
+        media_id = None
+
+        if message_type == "text":
+            text_body = message["text"]["body"]
+        elif message_type in ["image", "video", "audio", "document"]:
+            # Captura caption si existe
+            text_body = message.get(message_type, {}).get("caption", "")
+            media_body = message.get(message_type, {})
+            media_id = media_body.get("id")
+        elif message_type == "interactive":
+            # Botones y Listas
+            interactive = message["interactive"]
+            if interactive["type"] == "button_reply":
+                text_body = interactive["button_reply"]["id"]  # Usamos ID como payload
+            elif interactive["type"] == "list_reply":
+                text_body = interactive["list_reply"]["title"]  # O description id
+
+        log.info(
+            f"📨 Msg received from {sender_id}: {text_body[:50]}... ({message_type})"
+        )
+
+        # --- 1. GESTIÓN DE CONTACTO & DEDUPLICACIÓN ---
+        # Optimization: get name from profile only if not exists
+        profile_name = "Unknown"
+        contacts_data = value.get("contacts")
+        if contacts_data:
+            profile_name = contacts_data[0].get("profile", {}).get("name", "Unknown")
+
+        contact, created = Contact.objects.get_or_create(
+            phone=sender_id, defaults={"name": profile_name}
+        )
+
+        # Marcar como leído
+        threading.Thread(target=mark_whatsapp_read, args=(message_id,)).start()
+
+        # Verificar duplicados (Idempotencia)
+        if Message.objects.filter(message_id=message_id).exists():
+            log.warning(f"🔁 Duplicate message {message_id} ignored.")
+            return
+
+        # Guardar Mensaje de Usuario en DB
+        # TODO: Handle media download/cache in background
+        Message.objects.create(
+            contact=contact,
+            text=text_body,
+            is_bot=False,
+            message_type=message_type,
+            message_id=message_id,
+            media_id=media_id,  # Can be null
+            caption=text_body if media_id else None,
+            timestamp=timezone.now(),
+        )
+
+        # Verificar si el bot está desactivado manualmente
+        if not contact.is_bot_active:
+            log.info(f"🔇 Bot disabled for {sender_id}. Ignoring.")
+            return
+
+        # --- 2. COMANDOS DE ADMIN (Safety Valves) ---
+        if text_body.lower() == "/reset":
+            # Hard Reset de emergencia
+            contact.current_state = Contact.States.INITIAL
+            contact.flow_context = {}
+            contact.save()
+            send_whatsapp_message(sender_id, "🔄 Bot reiniciado a Estado Inicial.")
+            return
+
+        if text_body.lower() == "/build":
+            # Reindex trigger
+            try:
+                from botyapp.services.intelligence.product_image_matcher import (
+                    product_matcher,
+                )
+
+                threading.Thread(target=product_matcher.reindex_all_products).start()
+                send_whatsapp_message(
+                    sender_id, "🔧 Indexando productos en background..."
+                )
+            except ImportError:
+                send_whatsapp_message(sender_id, "⚠️ Módulo de IA visual no cargado.")
+            return
+
+        # --- 3. STATE MACHINE ROUTER (THE NEW BRAIN) ---
+
+        # A. Si el usuario está atrapado en un estado transaccional (No-Initial),
+        #    el FlowManager tiene prioridad ABSOLUTA.
+        #    Excepción: Si FlowManager retorna False, significa que quiere liberar al LLM (raro).
+        if contact.current_state != Contact.States.INITIAL:
+            handled = FlowManager.process(contact, text_body, message_type, media_id)
+            if handled:
+                return  # El flujo manejó la respuesta. Fin.
+
+        # B. Si estamos en INITIAL, usamos Inteligencia Híbrida.
+
+        # Intent Classifier (Fuzzy + AI)
+        intent_result = intent_classifier.classify(text_body)
+
+        # Mapeo de Intenciones a Acciones de Flujo
+        # Si la intención es "Venta", forzamos la entrada al FlowManager
+        if intent_result.action in ["show_catalog", "contact_support"]:
+            # Dejamos que FlowManager decida cómo entrar al estado
+            FlowManager.process(contact, text_body, message_type, media_id)
+            return
+
+        # --- 4. LLM FALLBACK (CHARLA LIBRE) ---
+        # Si no es un flujo estricto, dejamos que Gemini responda conversacionalmente.
+        engine = LLMEngine()
+        sender_id_val = sender_id  # pass explicitly
+        # LLMEngine argument validation
+        engine.process_message(contact, text_body, sender_id_val)
+
+    except Exception as e:
+        # --- 5. GLOBAL ERROR TRAP ---
+        import traceback
+
+        error_trace = traceback.format_exc()
+        log.error(f"🔥 CRITICAL BOT ERROR: {error_trace}")
+
+        # Respuesta de emergencia al usuario (Failover gracefully)
         try:
-            log.debug(f"📨 MessageHandler: Procesando mensaje de {sender_id}")
-
-            # 1. Marcar como leído
-            mark_whatsapp_read(message_id)
-
-            # 2. Cancelar timer anterior
-            cancel_timer(sender_id)
-
-            # 3. Verificar/Obtener Contacto
-            try:
-                contact_obj = Contact.objects.get(phone=sender_id)
-            except Contact.DoesNotExist:
-                log.error(
-                    f"❌ Contacto no encontrado para recibir mensaje: {sender_id}"
-                )
-                return
-
-            # --- DEDUPLICACIÓN ROBUSTA (CORE FIX) ---
-            # Verificar si el message_id ya existe ANTES de hacer nada pesado
-            # NOTA: Para Media (Image/Audio), views.py crea el mensaje antes de llamar al hilo.
-            # Por tanto, si es media, ES NORMAL que exista. Solo bloqueamos si es texto (que este handler crea).
-            if not media_id and Message.objects.filter(message_id=message_id).exists():
-                log.warning(
-                    f"🛑 Mensaje YA existente en DB (Bloqueo Preventivo): {message_id}"
-                )
-                return
-            # ---------------------------------------
-
-            # Lookup Reply Original Message
-            reply_to_msg = None
-            if reply_to_message_id:
-                try:
-                    reply_to_msg = Message.objects.filter(
-                        message_id=reply_to_message_id
-                    ).first()
-                    if reply_to_msg:
-                        log.debug(f"🔗 Vinculando respuesta a: {reply_to_message_id}")
-                except Exception as e:
-                    log.warning(f"⚠️ Error buscando mensaje original: {e}")
-
-            # 4. Guardar Mensaje en BD (Solo Texto se guarda aquí, multimedia lo guarda views.py)
-            # views.py ya guarda Image/Audio antes de llamar al hilo, pero NO guarda texto.
-            # Debemos detectar si es texto puro para guardarlo.
-            # Si media_id viene nulo, asumimos texto.
-            if not media_id:
-                try:
-                    Message.objects.create(
-                        contact=contact_obj,
-                        text=raw_text.strip(),
-                        is_bot=False,
-                        message_id=message_id,
-                        reply_to=reply_to_msg,
-                    )
-                except IntegrityError:
-                    log.warning(
-                        f"🛑 Mensaje duplicado en DB (IntegrityError): {message_id}"
-                    )
-                    return
-                except Exception as e:
-                    log.error(f"⚠️ Error guardando mensaje texto: {e}")
-                    return
-
-            # 5. Verificar Estado del Bot (Switch ON/OFF)
-            if not contact_obj.is_bot_active:
-                log.debug("🤖 Bot desactivado para este usuario.")
-                return
-
-            if contact_obj.bot_disabled_at:
-                try:
-                    ts = float(timestamp)
-                    message_timestamp = datetime.fromtimestamp(ts)
-                    if message_timestamp < contact_obj.bot_disabled_at:
-                        log.debug("⏳ Mensaje antiguo ignorado.")
-                        return
-                except Exception:
-                    pass
-
-            # 6. ENTERPRISE INTENT CLASSIFICATION SYSTEM
-            # "Google-grade" Strategy Pattern: Deterministic -> Probabilistic
-            from botyapp.services.intent.classifier import intent_classifier
-            from botyapp.services.crm_service import CRMService
-
-            intent_result = intent_classifier.classify(raw_text)
-            text_body = raw_text.lower().strip()
-
-            # --- COMANDO DE EMERGENCIA: RESET HISTORIAL ---
-            if text_body == "/reset" or text_body == "reset":
-                log.info(f"🧹 Clearing history for {sender_id}")
-                try:
-                    # Borrar mensajes antiguos
-                    Message.objects.filter(contact=contact_obj).delete()
-                    # Resetear estado conversacional
-                    if hasattr(contact_obj, "conversation_state"):
-                        contact_obj.conversation_state.current_stage = "initial"
-                        contact_obj.conversation_state.save()
-
-                    from botyapp.services.whatsapp import send_whatsapp_message
-
-                    send_whatsapp_message(
-                        sender_id, "🧹 *Historial reseteado.* Empecemos de nuevo. 👋"
-                    )
-                    return
-                except Exception as e:
-                    log.error(f"Error resetting history: {e}")
-            # ---------------------------------------------
-            if text_body and text_body.strip().lower() == "/build":
-                try:
-                    from botyapp.services.whatsapp import send_whatsapp_message
-                    from botyapp.services.intelligence.product_image_matcher import (
-                        product_matcher,
-                    )
-                    import threading
-
-                    send_whatsapp_message(
-                        sender_id,
-                        "🔧 *Iniciando re-indexación manual...* Esto tomará unos minutos.",
-                    )
-
-                    # Ejecutar en background para no bloquear
-                    threading.Thread(
-                        target=product_matcher.reindex_all_products
-                    ).start()
-                    return
-                except Exception as e:
-                    log.error(f"Error triggering build: {e}")
-            # ---------------------------------------------
-
-            # ---------------------------------------------
-            if text_body and text_body.strip().lower() == "/build":
-                try:
-                    from botyapp.services.whatsapp import send_whatsapp_message
-                    from botyapp.services.intelligence.product_image_matcher import (
-                        product_matcher,
-                    )
-                    from botyapp.services.catalog import sync_facebook_to_db
-                    from django.core.cache import cache
-                    import threading
-
-                    send_whatsapp_message(
-                        sender_id,
-                        "🔧 *Iniciando Mantenimiento Completo...* \n(3 Pasos: Sync FB -> DB -> Cache -> IA)\nEsto puede tardar.",
-                    )
-
-                    def run_full_build():
-                        # 1. Sync FB -> SQL
-                        sync_facebook_to_db(force=True)
-                        # 2. Clear Cache
-                        cache.clear()
-                        # 3. Reindex Images
-                        product_matcher.reindex_all_products()
-
-                    # Ejecutar en background para no bloquear
-                    threading.Thread(target=run_full_build).start()
-                    return
-                except Exception as e:
-                    log.error(f"Error triggering build: {e}")
-
-            # ---------------------------------------------
-            if text_body and text_body.strip().lower() == "/status":
-                try:
-                    from botyapp.models import ProductEmbedding
-                    from django.core.cache import cache
-                    from django.conf import settings
-                    from botyapp.services.whatsapp import send_whatsapp_message
-
-                    db_count = ProductEmbedding.objects.count()
-                    img_index_count = ProductEmbedding.objects.filter(
-                        image_embedding_vector__isnull=False
-                    ).count()
-                    cache_status = (
-                        "✅ Activo"
-                        if cache.get(f"catalog_products_{settings.CATALOG_ID}")
-                        else "⚠️ Vacío"
-                    )
-
-                    status_msg = (
-                        f"📊 *Estado del Sistema*\n\n"
-                        f"💾 *Base de Datos SQL:* {db_count} productos\n"
-                        f"👁️ *Imágenes Indexadas:* {img_index_count} productos\n"
-                        f"⚡ *Caché Rápida:* {cache_status}\n\n"
-                        f"Si 'Imágenes Indexadas' es 0, usa /build."
-                    )
-                    send_whatsapp_message(sender_id, status_msg)
-                    return
-                except Exception as e:
-                    log.error(f"Error checking status: {e}")
-            # ---------------------------------------------
-            # ---------------------------------------------
-            # ---------------------------------------------
-            # 6. INTERCEPTOR VISUAL ESCALABLE (AI-DRIVEN) 🧠
-            # DESACTIVADO POR REFACTORIZACIÓN CORE (2025):
-            # El LLMEngine ahora tiene su propio loop de tools.
-            # Delegamos la decisión de mostrar catálogo al modelo y su system prompt.
-
-            # forced_visual_intents = [
-            #     "ordering",
-            #     "product_inquiry",
-            #     "show_catalog",
-            #     "product_search",
-            # ]
-
-            # if intent_result.intent in forced_visual_intents:
-            #     log.info(f"🛑 Visual Intent Detected but passing to LLM Loop: {text_body}")
-            #     # DEJAMOS PASAR AL SALES INTELLIGENCE SYSTEM PARA QUE EL LLM DECIDA Y HABLE
-            #     pass
-
-            # SOLO MANAGEMOS SOPORTE HUMANO DIRECTO AQUÍ
-            if intent_result.action == "contact_support":
-                log.info(
-                    f"✨ IntentClassifier: Soporte Humano activado ({intent_result.source})"
-                )
-                from botyapp.services.whatsapp import send_contact_message
-
-                send_contact_message(sender_id)
-                CRMService.analyze_interaction(
-                    sender_id, text_body, intent_label="contact_support"
-                )
-                return
-
-            # 7. SMART MESSAGE PROCESSOR (Image Recognition + Checkout)
-            # Procesa ANTES del Sales Intelligence para interceptar:
-            # - Imágenes → Identificar producto
-            # - Intención de compra fuerte → Activar checkout
-            from botyapp.services.smart_processor import smart_processor
-
-            smart_result = smart_processor.process(
-                contact=contact_obj,
-                raw_text=raw_text,
-                media_id=media_id,
-                media_type=media_type,
-            )
-
-            # Si smart_processor manejó completamente el mensaje, terminar aquí
-            if smart_result.get("handled"):
-                log.info(
-                    f"✅ Smart Processor manejó el mensaje: {smart_result.get('response', '')[:50]}"
-                )
-
-                # Análisis CRM
-                CRMService.analyze_interaction(
-                    sender_id, text_body, intent_label="smart_processor"
-                )
-                return
-
-            # 8. SALES INTELLIGENCE SYSTEM (Autonomous Sales Bot)
-            # Solo se ejecuta si smart_processor no manejó el mensaje
-            log.debug("🤖 Procesando con Sales Intelligence System")
-
-            try:
-                from botyapp.services.dialogue.sales_flow import SalesFlow
-
-                # Generar respuesta base con LLM
-                llm_response = llm_engine._generate_smart_response(
-                    sender_id, raw_text, media_id, media_type
-                )
-
-                # Procesar con SalesFlow para enriquecer
-                sales_flow = SalesFlow(contact_obj)
-                sales_result = sales_flow.process_message(raw_text, llm_response)
-
-                # Usar respuesta enriquecida (con objeciones/cierre)
-                final_response = sales_result.get("response", llm_response)
-
-                # Enviar respuesta
-                from botyapp.services.whatsapp import send_whatsapp_message
-
-                send_whatsapp_message(sender_id, final_response)
-
-                # Nota: send_whatsapp_message ya guarda en BD.
-
-                # Mostrar productos si el sistema lo recomienda
-                if sales_result.get("should_show_products"):
-                    from botyapp.services.whatsapp import send_product_message
-                    from django.conf import settings
-
-                    for product in sales_result.get("products", [])[:5]:
-                        send_product_message(
-                            sender_id, product.retailer_id, settings.CATALOG_ID
-                        )
-
-                # Análisis CRM
-                CRMService.analyze_interaction(
+            if "sender_id" in locals():
+                send_whatsapp_message(
                     sender_id,
-                    text_body,
-                    intent_label=sales_result.get("action_taken", "sales_flow"),
+                    "🚧 Tuve un pequeño error interno. ¿Podrías intentar decírmelo de nuevo? 🙏",
                 )
-
-                log.info(
-                    f"✅ Sales Intelligence: {sales_result.get('action_taken', 'processed')}"
-                )
-
-            except Exception as e:
-                log.error(f"⚠️ Error en SalesFlow, fallback a LLM: {e}")
-                # Fallback: usar LLM normal si falla SalesFlow
-                llm_engine.process_message(
-                    sender_id=sender_id,
-                    text_body=raw_text,
-                    media_id=media_id,
-                    media_type=media_type,
-                )
-
-        except Exception as e:
-            log.error(f"❌ Error CRÍTICO en MessageHandler: {e}")
+        except Exception:
+            pass  # Si falla el mensaje de error, no podemos hacer nada más.
