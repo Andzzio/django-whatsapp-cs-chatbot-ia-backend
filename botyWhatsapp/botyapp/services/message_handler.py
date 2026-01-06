@@ -1,4 +1,5 @@
 from django.utils import timezone
+from django.conf import settings
 from botyapp.models import Contact, Message
 from botyapp.services.whatsapp import send_whatsapp_message, mark_whatsapp_read
 from botyapp.services.intent.classifier import intent_classifier
@@ -146,10 +147,9 @@ def handle_incoming_message(message_data):
 
         # --- 4. LLM FALLBACK (CHARLA LIBRE) ---
         # Si no es un flujo estricto, dejamos que Gemini responda conversacionalmente.
-        engine = LLMEngine()
-        sender_id_val = sender_id  # pass explicitly
-        # LLMEngine argument validation
-        engine.process_message(contact, text_body, sender_id_val)
+        engine = LLMEngine(settings.IA_TOKEN)
+        # LLMEngine argument validation: sender_id, text_body, media_id, media_type
+        engine.process_message(sender_id, text_body, media_id, message_type)
 
     except Exception as e:
         # --- 5. GLOBAL ERROR TRAP ---
