@@ -51,45 +51,143 @@ class LLMEngine:
             f"{catalog_context}"
         )
 
-    def process_message(self, sender_id, text_body, media_id=None, media_type="image"):
-        # 1. Historial
-        history = get_context(sender_id)
+    def _clean_history(self, history):
+        """Limpia el historial de alucinaciones antiguas pero mantiene tool calls."""
         if not isinstance(history, list):
-            history = []
+            return []
 
-        # CLEAN-READ: Limpiamos la memoria "al vuelo" antes de pensar.
-        # No tocamos la BD, solo lo que el modelo "ve" ahora.
         clean_history = []
         for turn in history:
             try:
-                # Copia segura para no afectar referencias
                 if isinstance(turn, dict):
                     new_parts = []
                     for p in turn.get("parts", []):
+                        # Limpieza de alucinaciones antiguas [SISTEMA...]
                         if isinstance(p, dict) and "text" in p:
-                            # Borrar [SISTEMA:...]
                             c_text = re.sub(
                                 r"\[SISTEMA:.*?\]",
                                 "",
                                 p["text"],
                                 flags=re.IGNORECASE | re.DOTALL,
                             )
-                            if c_text.strip():  # Solo si queda algo
+                            if c_text.strip():
                                 new_parts.append({"text": c_text})
+                        # Importante: Mantener function_calls y function_responses
+                        elif isinstance(p, dict) and (
+                            "function_call" in p or "function_response" in p
+                        ):
+                            new_parts.append(p)
+                        # Objetos genai.types
                         else:
                             new_parts.append(p)
 
                     if new_parts:
                         clean_history.append({"role": turn["role"], "parts": new_parts})
                 else:
-                    # Si es objeto raro, lo dejamos pasar (habitualmente es dict de users.py)
                     clean_history.append(turn)
             except Exception:
                 clean_history.append(turn)
+        return clean_history
 
-        history = clean_history
+    def _run_execution_loop(
+        self, sender_id, gemini_input, crm_info, text_body_context=None
+    ):
+        """
+        Núcleo unificado de ejecución: Pensar -> Ejecutar -> Repensar.
+        Retorna el TEXTO FINAL de la respuesta.
+        """
+        max_tool_turns = 3
+        final_text_response = None
 
-        # 2. Construir User Message
+        for _ in range(max_tool_turns):
+            try:
+                # LLAMADA AL MODELO
+                response = self.client.models.generate_content(
+                    model="models/gemini-flash-lite-latest",
+                    contents=gemini_input,
+                    config={
+                        "system_instruction": self._build_system_instruction(crm_info),
+                        "tools": self._get_gemini_tools(),
+                    },
+                )
+
+                if not response or not response.candidates:
+                    break
+
+                candidate = response.candidates[0]
+
+                # Caso A: El modelo responde con TEXTO FINAL
+                has_function_call = False
+                for part in candidate.content.parts:
+                    if hasattr(part, "function_call") and part.function_call:
+                        has_function_call = True
+                        break
+
+                # Si no hay llamadas a función, capturamos texto y salimos
+                if not has_function_call:
+                    final_text_response = response.text
+                    break  # EXITO: Fin del bucle
+
+                # Caso B: El modelo pide EJECUTAR TOOL(s)
+                # Agregamos la petición del sistema al historial (Model Turn)
+                gemini_input.append(candidate.content)
+
+                # Procesar Function Calls
+                tool_outputs = []
+                for part in candidate.content.parts:
+                    if hasattr(part, "function_call") and part.function_call:
+                        fname = part.function_call.name
+                        fargs = part.function_call.args
+
+                        log.info(f"⚙️ LLM Tool Call Request: {fname}({fargs})")
+
+                        # Ejecutar Tool Real
+                        tool_result = {"error": "Tool not found"}
+                        if fname in self._tool_map:
+                            try:
+                                tool_result = self._tool_map[fname].execute(
+                                    sender_id, **fargs
+                                )
+                            except Exception as e:
+                                log.error(f"❌ Error ejecutando tool {fname}: {e}")
+                                tool_result = {"error": str(e)}
+
+                        # Crear Response Part
+                        tool_outputs.append(
+                            types.Part.from_function_response(
+                                name=fname, response=tool_result
+                            )
+                        )
+
+                        # CRM Analytics
+                        if text_body_context:
+                            CRMService.analyze_interaction(
+                                phone=sender_id, text=text_body_context, tool_used=fname
+                            )
+
+                # Si obtuvimos resultados, los agregamos como un turno de USUARIO (Function Response)
+                if tool_outputs:
+                    log.debug(
+                        f"📤 Enviando {len(tool_outputs)} resultados de tool al modelo."
+                    )
+                    gemini_input.append({"role": "user", "parts": tool_outputs})
+                    # ALERTA: No salimos del loop, volvemos al inicio para que el modelo vea el resultado
+                else:
+                    break  # Algo raro pasó
+
+            except Exception as e:
+                log.error(f"❌ Error CRÍTICO en Loop LLM: {e}")
+                break
+
+        return final_text_response
+
+    def _prepare_inputs(self, sender_id, text_body, media_id=None, media_type="image"):
+        """Prepara el historial y los inputs para el modelo."""
+        # 1. Historial
+        history = get_context(sender_id)
+        history = self._clean_history(history)
+
+        # 2. Construir User Message Actual
         current_parts = []
         if media_id:
             media_url = get_whatsapp_media_url(media_id)
@@ -110,14 +208,19 @@ class LLMEngine:
                     if not text_body:
                         text_body = "Atiende este audio."
 
-        current_parts.append({"text": text_body})
+        # Fallback vacío
+        if not text_body and not media_id:
+            text_body = "..."
+
+        if text_body:
+            current_parts.append({"text": text_body})
+
         user_turn = {"role": "user", "parts": current_parts}
 
-        gemini_input = history + [user_turn]
-        if len(gemini_input) > 20:
-            gemini_input = gemini_input[-20:]
+        # Contexto limitado
+        gemini_input = history[-15:] + [user_turn]
 
-        # 3. Preparar Contexto de Ventas (CRM)
+        # 3. CRM Info
         crm_info = ""
         try:
             from botyapp.models import Contact
@@ -128,156 +231,67 @@ class LLMEngine:
                 f"TAGS: {contact.tags}\n"
                 f"SCORE: {contact.lead_score}\n"
                 f"ULTIMA INTENCION: {contact.last_intent}\n"
-                "Instrucción de Venta: Si es VIP (>50 puntos) ofrece trato premium. Si tiene 'interes_catalogo', enfócate en cerrar venta."
             )
         except Exception:
             pass
 
-        # 4. Llamada al Modelo
-        try:
-            response = self.client.models.generate_content(
-                model="models/gemini-flash-lite-latest",
-                contents=gemini_input,
-                config={
-                    "system_instruction": self._build_system_instruction(crm_info),
-                    "tools": self._get_gemini_tools(),
-                },
-            )
-        except Exception as e:
-            log.error(f"❌ Error Gemini Engine: {e}")
-            return
+        return gemini_input, crm_info, history, user_turn
 
-        if not response:
-            return
+    def process_message(self, sender_id, text_body, media_id=None, media_type="image"):
+        """Punto de entrada principal para procesamiento completo (Fallback/Directo)."""
+        gemini_input, crm_info, history, user_turn = self._prepare_inputs(
+            sender_id, text_body, media_id, media_type
+        )
 
-        # 4. Procesar Respuesta (Tool Execution vs Text)
-        has_execution = False
-        tool_name_executed = None
+        # EJECUTAR BUCLE UNIFICADO
+        final_text = self._run_execution_loop(
+            sender_id, gemini_input, crm_info, text_body
+        )
 
-        candidates = response.candidates
-        if candidates and candidates[0].content and candidates[0].content.parts:
-            for part in candidates[0].content.parts:
-                if hasattr(part, "function_call") and part.function_call:
-                    fname = part.function_call.name
-                    fargs = part.function_call.args
+        # Envío y Persistencia
+        if final_text:
+            text_clean = final_text.replace("CONTEXTO:", "").strip()
+            text_clean = re.sub(r"\[SISTEMA:.*?\]", "", text_clean, flags=re.IGNORECASE)
 
-                    if fname in self._tool_map:
-                        has_execution = True
-                        tool_name_executed = fname
-                        log.info(f"⚙️ Ejecutando herramienta: {fname}")
-                        self._tool_map[fname].execute(sender_id, **fargs)
-                    else:
-                        log.warning(f"⚠️ Tool desconocida solicitada: {fname}")
+            if text_clean and len(text_clean) > 1:
+                send_whatsapp_message(sender_id, text_clean)
 
-            if response.text and not has_execution:
-                # Clean System Hallucinations (Line-by-Line Aggressive)
-                lines = response.text.split("\n")
-                clean_lines = []
-                for line in lines:
-                    # Si la linea tiene [SISTEMA o es una narración de acción, la borramos
-                    if "[SISTEMA" in line or "Acción" in line and "ejecutada" in line:
-                        continue
-                    clean_lines.append(line)
-
-                text_clean = "\n".join(clean_lines)
-                final_text = text_clean.replace("CONTEXTO:", "").strip()
-
-                if final_text and len(final_text) > 1:
-                    send_whatsapp_message(sender_id, final_text)
-
-        # 5. Persistencia & CRM INTELLIGENCE 🧠
-        try:
-            # CRM Analysis
-            CRMService.analyze_interaction(
-                phone=sender_id, text=text_body, tool_used=tool_name_executed
-            )
-
-            model_parts = []
-            if response.text:
-                model_parts.append({"text": response.text})
-
-            # Si hubo tool call, podriamos guardar un log simulado o el tool use real
-            # Por compatibilidad con users.py actual, guardamos algo representativo
-            if has_execution:
-                # Ojo: users.py ya tiene filtros, pero mantenemos limpio
-                pass
-
-            # NOTA: Guardar respuesta del modelo exacta es complejo con function calls
-            # en historial de chat simple. Guardamos el texto si existe.
-            if model_parts:
-                model_turn = {"role": "model", "parts": model_parts}
+            # Persistencia simplificada
+            try:
+                model_turn = {"role": "model", "parts": [{"text": text_clean}]}
                 save_user_data(
-                    phone_number=sender_id, context=gemini_input + [model_turn]
+                    phone_number=sender_id, context=history + [user_turn, model_turn]
                 )
-        except Exception as e:
-            log.error(f"❌ Error actualizando conversación: {e}")
+
+                # CRM Analysis Final
+                CRMService.analyze_interaction(
+                    phone=sender_id, text=text_body, intent_label="processed_with_loop"
+                )
+            except Exception as e:
+                log.error(f"⚠️ Warn guardando historial: {e}")
+
+        # 6. Timer
+        start_timer(sender_id)
 
     def _generate_smart_response(
         self, sender_id, text_body, media_id=None, media_type="image"
     ):
         """
-        Genera respuesta del LLM sin enviarla (para SalesFlow).
-        Retorna solo el texto de la respuesta.
+        Genera respuesta usando el MISMO bucle de tools que process_message.
+        Usado por SalesFlow para obtener la respuesta final enriquecida con tools.
         """
-        history = get_context(sender_id)
-        if not isinstance(history, list):
-            history = []
+        gemini_input, crm_info, _, _ = self._prepare_inputs(
+            sender_id, text_body, media_id, media_type
+        )
 
-        # Construir mensaje
-        current_parts = []
-        if media_id:
-            media_url = get_whatsapp_media_url(media_id)
-            if media_type == "image" and media_url:
-                img_bytes = download_and_optimize_image(media_url)
-                if img_bytes:
-                    current_parts.append(
-                        types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
-                    )
-                    if not text_body:
-                        text_body = "Describe esta imagen."
+        # EJECUTAR BUCLE UNIFICADO
+        final_text = self._run_execution_loop(
+            sender_id, gemini_input, crm_info, text_body
+        )
 
-        current_parts.append({"text": text_body})
-        user_turn = {"role": "user", "parts": current_parts}
-
-        gemini_input = history + [user_turn]
-        if len(gemini_input) > 20:
-            gemini_input = gemini_input[-20:]
-
-        # CRM
-        crm_info = ""
-        try:
-            from botyapp.models import Contact
-
-            contact = Contact.objects.get(phone=sender_id)
-            crm_info = (
-                f"CLIENTE: {contact.name}\\n"
-                f"TAGS: {contact.tags}\\n"
-                f"SCORE: {contact.lead_score}\\n"
-            )
-        except Exception:
-            pass
-
-        # Generar
-        try:
-            response = self.client.models.generate_content(
-                model="models/gemini-flash-lite-latest",
-                contents=gemini_input,
-                config={
-                    "system_instruction": self._build_system_instruction(crm_info),
-                    "tools": self._get_gemini_tools(),
-                },
-            )
-
-            if response and hasattr(response, "text"):
-                return response.text
-            else:
-                return "¿En qué puedo ayudarte?"
-        except Exception as e:
-            log.error(f"Error generando respuesta: {e}")
-            return "Disculpa, hubo un error. ¿Puedes repetir?"
-
-        # 6. Timer
-        start_timer(sender_id)
+        if final_text:
+            return final_text
+        return "¿En qué puedo ayudarte?"
 
 
 # Instancia global

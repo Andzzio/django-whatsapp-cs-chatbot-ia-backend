@@ -4,7 +4,6 @@ from django.db import IntegrityError
 from botyapp.models import Contact, Message
 from botyapp.services.whatsapp import (
     mark_whatsapp_read,
-    send_catalog_message,
 )
 from botyapp.services.users import cancel_timer
 from botyapp.services.llm.engine import llm_engine
@@ -217,58 +216,24 @@ class MessageHandler:
             # ---------------------------------------------
             # ---------------------------------------------
             # 6. INTERCEPTOR VISUAL ESCALABLE (AI-DRIVEN) 🧠
-            # Usamos el IntentClassifier (que ya usas y es escalable) para detectar intención de compra.
-            # Si la IA detecta que el usuario quiere ver productos, FORZAMOS la herramienta visual.
-            # Esto sirve para cualquier producto nuevo que agregues, sin hardcodear palabras.
+            # DESACTIVADO POR REFACTORIZACIÓN CORE (2025):
+            # El LLMEngine ahora tiene su propio loop de tools.
+            # Delegamos la decisión de mostrar catálogo al modelo y su system prompt.
 
-            forced_visual_intents = [
-                "ordering",
-                "product_inquiry",
-                "show_catalog",
-                "product_search",
-            ]
+            # forced_visual_intents = [
+            #     "ordering",
+            #     "product_inquiry",
+            #     "show_catalog",
+            #     "product_search",
+            # ]
 
-            if intent_result.intent in forced_visual_intents:
-                log.info(
-                    f"🛑 Visual Intent Detected ({intent_result.intent}): {text_body}"
-                )
+            # if intent_result.intent in forced_visual_intents:
+            #     log.info(f"🛑 Visual Intent Detected but passing to LLM Loop: {text_body}")
+            #     # DEJAMOS PASAR AL SALES INTELLIGENCE SYSTEM PARA QUE EL LLM DECIDA Y HABLE
+            #     pass
 
-                # Extraemos qué producto quiere ver (Si el classifier no lo da, usamos el texto completo)
-                # Intentamos limpiar un poco si es una frase larga
-                search_query = text_body
-
-                # Si tenemos entities del classifier, las usamos (escalabilidad real)
-                if hasattr(intent_result, "entities") and intent_result.entities:
-                    # Priorizamos la entidad detected (ej: usuario dice "muestrame pantalones rojos", entidad="pantalones rojos")
-                    search_query = " ".join(intent_result.entities)
-
-                try:
-                    from botyapp.services.catalog import search_and_send_products
-
-                    search_and_send_products(sender_id, search_query)
-
-                    CRMService.analyze_interaction(
-                        sender_id, text_body, intent_label="visual_forced_ai"
-                    )
-                    return
-                except Exception as e:
-                    log.error(f"Error in Scalable Visual Interceptor: {e}")
-
-                # ---------------------------------------------
-
-                # ---------------------------------------------
-                log.info(
-                    f"✨ IntentClassifier: Catálogo activado ({intent_result.source})"
-                )
-                send_catalog_message(
-                    sender_id, "¡Claro! 🛍️ Aquí tienes nuestro catálogo completo:"
-                )
-                CRMService.analyze_interaction(
-                    sender_id, text_body, intent_label="show_catalog"
-                )
-                return
-
-            elif intent_result.action == "contact_support":
+            # SOLO MANAGEMOS SOPORTE HUMANO DIRECTO AQUÍ
+            if intent_result.action == "contact_support":
                 log.info(
                     f"✨ IntentClassifier: Soporte Humano activado ({intent_result.source})"
                 )

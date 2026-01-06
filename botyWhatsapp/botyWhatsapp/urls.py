@@ -59,6 +59,9 @@ urlpatterns = [
         name="send_product",
     ),
     path(
+        "api/contacts/<str:phone>/reset-memory/", api.reset_memory, name="reset_memory"
+    ),
+    path(
         "api/contacts/<str:phone>/send-catalog/",
         api.send_catalog_to_contact,
         name="send_catalog",

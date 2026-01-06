@@ -762,6 +762,51 @@ def send_catalog_to_contact(request, phone):
 
 
 @csrf_exempt
+def reset_memory(request, phone):
+    """
+    Endpoint para borrar la memoria (historial de mensajes) de un contacto específico.
+    Util para cuando el bot entra en loops o alucinaciones.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        contact = Contact.objects.get(phone=phone)
+
+        # 1. Borrar mensajes
+        deleted_count, _ = Message.objects.filter(contact=contact).delete()
+
+        # 2. Resetear ConversationState
+        if hasattr(contact, "conversation_state"):
+            contact.conversation_state.current_stage = "initial"
+            contact.conversation_state.context_data = {}  # Limpiar datos temporales
+            contact.conversation_state.save()
+
+        # 3. Enviar mensaje de confirmación (Opcional, dashboard puede decidir si enviarlo)
+        # body = json.loads(request.body.decode("utf-8"))
+        # if body.get("notify_user", True):
+        #     send_whatsapp_message(phone, "🧹 *Memoria reiniciada por administración.*")
+
+        log.info(
+            f"🧹 Memory reset via API for {phone}. Deleted {deleted_count} messages."
+        )
+
+        return JsonResponse(
+            {
+                "status": "success",
+                "message": "Memory cleared successfully",
+                "deleted_messages": deleted_count,
+            }
+        )
+
+    except Contact.DoesNotExist:
+        return JsonResponse({"error": "Contact not found"}, status=404)
+    except Exception as e:
+        log.error(f"Error resetting memory: {e}")
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@csrf_exempt
 def generate_embeddings_endpoint(request):
     """
     Endpoint para generar embeddings de productos bajo demanda.
