@@ -1,5 +1,9 @@
 from botyapp.models import Contact
-from botyapp.services.whatsapp import send_whatsapp_message, send_catalog_message
+from botyapp.services.whatsapp import (
+    send_whatsapp_message,
+    send_catalog_message,
+    send_interactive_buttons,
+)
 from botyapp.services.intent.classifier import intent_classifier
 from logger import log
 
@@ -28,10 +32,26 @@ class FlowManager:
             f"🚦 FlowManager Processing | User: {contact.name} | State: {state} | Msg: {message_body[:30]}"
         )
 
-        # 1. SOPORTE HUMANO (BLOQUEO TOTAL)
-        if state == Contact.States.LOCKED_HUMAN:
-            # Silencio absoluto. El bot está "apagado" para este usuario.
-            return True
+        # 0. INTERCEPTOR DE IMÁGENES (Priority High)
+        if media_id:
+            return FlowManager._handle_incoming_image(contact, media_id)
+
+        # 0.1 INTERCEPTOR DE BOTONES (Payloads)
+        if message_type == "interactive":
+            # "action_handoff_image" or "action_show_catalog"
+            if message_body == "action_handoff_image":
+                return FlowManager._perform_handoff(
+                    contact, "User sent image and requested agent."
+                )
+            elif message_body == "action_show_catalog":
+                # Reset to browsing
+                FlowManager.transition_to(contact, Contact.States.BROWSING_CATALOG)
+                send_catalog_message(contact.phone, "¡Aquí tienes! 🛍️")
+                return True
+
+        # 1. VALIDACIÓN MANUAL (Single Source of Truth)
+        # La validación `is_bot_active` ya ocurrió en message_handler.
+        # Aquí asumimos que si llegamos, el bot TIENE permiso para hablar.
 
         # 2. SELECCIÓN DE HANDLER SEGÚN ESTADO
         handler_map = {
@@ -41,6 +61,8 @@ class FlowManager:
             Contact.States.CONFIRM_CART: FlowManager._handle_confirm_cart,
             # Legacy states fallback to Initial (via default get)
             Contact.States.COMPLETED: FlowManager._handle_completed,
+            # Si se reactiva manualmente, LOCKED_HUMAN se comporta como INITIAL
+            Contact.States.LOCKED_HUMAN: FlowManager._handle_initial,
         }
 
         handler = handler_map.get(state, FlowManager._handle_initial)
@@ -265,6 +287,23 @@ class FlowManager:
         # Dejmos pasar al LLM para saludo? Or respondemos nosotros.
         send_whatsapp_message(
             contact.phone, "Hola de nuevo 👋. ¿En qué puedo ayudarte hoy?"
+        )
+        return True
+
+    @staticmethod
+    def _handle_incoming_image(contact, media_id):
+        """
+        Maneja CUALQUIER imagen entrante.
+        Ofrece: Contactar Humano vs Ver Catálogo.
+        """
+        buttons = [
+            ("action_handoff_image", "Contactar Asesor"),
+            ("action_show_catalog", "Ver Catálogo"),
+        ]
+        send_interactive_buttons(
+            contact.phone,
+            "📸 Imagen recibida.\n\n¿Deseas que un asesor revise est@ foto o prefieres ver nuestro catálogo?",
+            buttons,
         )
         return True
 

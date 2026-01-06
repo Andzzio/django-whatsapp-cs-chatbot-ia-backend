@@ -486,3 +486,57 @@ def download_and_optimize_image(url):
     except Exception as e:
         log.error(f"Error descargando imagen: {e}")
         return None
+
+
+def send_interactive_buttons(sender_id, body_text, buttons):
+    """
+    Envía mensajes con botones interactivos (Reply Buttons).
+    buttons: Lista de tuplas/dicts [(id1, title1), (id2, title2)] max 3.
+    """
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    button_objects = []
+    for btn_id, btn_title in buttons:
+        button_objects.append(
+            {"type": "reply", "reply": {"id": btn_id, "title": btn_title}}
+        )
+
+    data = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": sender_id,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body_text},
+            "action": {"buttons": button_objects},
+        },
+    }
+
+    try:
+        response = requests.post(
+            settings.WHATSAPP_URL, headers=headers, data=json.dumps(data), timeout=10
+        )
+        response.raise_for_status()
+        res_json = response.json()
+        log.debug(f"🔘 Botones enviados: {res_json}")
+        try:
+            contact_obj = Contact.objects.get(phone=sender_id)
+            wamid = res_json["messages"][0]["id"] if "messages" in res_json else None
+            # Store as text for simplicity
+            Message.objects.create(
+                contact=contact_obj,
+                text=f"*Bot envió opciones: {body_text}*",
+                is_bot=True,
+                message_type="interactive",
+                message_id=wamid,
+            )
+        except Exception:
+            pass
+        return res_json
+    except requests.exceptions.RequestException as e:
+        log.error(f"❌ Error al enviar botones: {e}")
+        return None
