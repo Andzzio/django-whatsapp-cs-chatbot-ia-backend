@@ -1,9 +1,7 @@
-from botyapp.models import Contact, Message
+from botyapp.models import Contact
 from botyapp.services.whatsapp import send_whatsapp_message, send_catalog_message
 from botyapp.services.intent.classifier import intent_classifier
 from logger import log
-from django.conf import settings
-import json
 
 
 class FlowManager:
@@ -98,30 +96,22 @@ class FlowManager:
         # Por ahora, asumimos que todo es búsqueda de producto.
 
         # 1. Buscar producto en Embeddings (Semantic Search)
-        from botyapp.services.tools.product_tool import ProductRetriever
+        from botyapp.services.catalog import search_and_send_products
 
-        products = ProductRetriever.search(text, limit=3)
+        # Usamos la función de catálogo directamente
+        found = search_and_send_products(contact.phone, text)
 
-        if products:
-            # Enviar productos encontrados
-            # ProductRetriever ya debería enviar el mensaje o devolver los datos.
-            # Asumiremos que devuelve datos y nosotros enviamos.
-            # Por simplicidad, llamamos a la tool directmente o copiamos lógica.
-            # Vamos a llamar a una función helper.
-            FlowManager._send_product_results(contact, products)
-
+        if found:
             # Preguntar si quiere comprar
             send_whatsapp_message(
                 contact.phone,
                 "¿Te gustaría pedir alguno? Responde con el nombre o 'Sí'",
             )
             FlowManager.transition_to(contact, Contact.States.PRODUCT_SELECTION)
-        else:
-            send_whatsapp_message(
-                contact.phone,
-                "Mmm, no encontré nada parecido. ¿Podrías intentar con otra palabra? (ej: 'Jeans' o 'Vestidos')",
-            )
-            # Mantenemos estado
+
+        # Si no encontró, search_and_send_products ya envió el mensaje de fallback.
+        # Nos quedamos en BROWSING_CATALOG esperando otro intento.
+        return True
 
         return True
 
@@ -136,7 +126,7 @@ class FlowManager:
         FlowManager.transition_to(contact, Contact.States.CONFIRM_CART)
         send_whatsapp_message(
             contact.phone,
-            f"¡Perfecto! He añadido eso a tu carrito virtual 🛒.\n\nEl total es S/ XX.XX\n\n¿Deseas confirmar el pedido? (Responde 'Confirmar')",
+            "¡Perfecto! He añadido eso a tu carrito virtual 🛒.\n\nEl total es S/ XX.XX\n\n¿Deseas confirmar el pedido? (Responde 'Confirmar')",
         )
         return True
 
@@ -230,14 +220,3 @@ class FlowManager:
         log.info(
             f"🔄 State Transition: {old_state} -> {new_state} | User: {contact.phone}"
         )
-
-    @staticmethod
-    def _send_product_results(contact, products):
-        from botyapp.services.whatsapp import send_product_message
-
-        # Just sending the first one for MVP logic, needs list msg
-        if products:
-            p = products[0]  # Mock
-            send_whatsapp_message(
-                contact.phone, f"Mira este: {p['product_name']} a S/{p['price']}"
-            )

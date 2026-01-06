@@ -363,7 +363,7 @@ def search_and_send_products(sender_id, search_term):
                 top_match["retailer_id"],
                 body_text="Aquí tienes.",
             )
-            return
+            return True
 
         scored_products = []
         term_clean = search_term.lower().strip()
@@ -404,7 +404,7 @@ def search_and_send_products(sender_id, search_term):
                 sender_id,
                 "No encontré ese nombre exacto, ¡pero mira nuestra colección!",
             )
-            return
+            return False
 
         # Ordenar por similitud (Mayor a menor)
         # Eliminamos duplicados por retailer_id
@@ -448,7 +448,7 @@ def search_and_send_products(sender_id, search_term):
                 body_text="Selecciona para ver detalles 👇",
             )
             log.debug(f"✅ Lista enviada con {len(top_matches)} productos.")
-            return
+            return True
 
         # CASO B: Un solo Resultado (SINGLE CARD)
         if len(matches) == 1:
@@ -460,8 +460,9 @@ def search_and_send_products(sender_id, search_term):
                 body_text="Aquí tienes.",
             )
             log.debug(f"✅ Producto único enviado: {top_match['name']}")
-            return
+            return True
 
     except Exception as e:
         log.error(f"Error recomendando productos: {e}")
         send_catalog_message(sender_id)  # Fallback final
+        return False
