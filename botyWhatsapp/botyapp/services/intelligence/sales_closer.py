@@ -164,7 +164,7 @@ class SalesCloser:
             f"📦 {product.product_name}\n"
             f"💰 Total: S/{final_price:.0f}\n\n"
             "Para confirmar tu pago:\n"
-            "📱 Yape/Plin: 999-999-999\n"
+            "📱 Pago: **924471992** (Yape/Plin)\n"
             "💳 Depósito: Cuenta 123-456-789\n\n"
             "Envía tu comprobante y tu dirección de envío 📍"
         )

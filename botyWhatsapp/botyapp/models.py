@@ -180,6 +180,7 @@ class Order(models.Model):
     """
 
     STATUS_CHOICES = [
+        ("PROFORMA", "Proforma (Cotización)"),
         ("PENDING", "Pendiente"),
         ("PENDING_SIZE", "Pendiente - Sin Talla"),
         ("CONFIRMED", "Confirmado"),

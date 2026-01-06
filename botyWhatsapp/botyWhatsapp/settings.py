@@ -40,6 +40,10 @@ SYSTEM_PROMPT = config("SYSTEM_PROMPT")
 CATALOG_ID = config("CATALOG_ID")
 DASH_TOKEN = config("DASH_TOKEN", default="NO")
 
+# Payment Configuration
+YAPE_NUMBER = config("YAPE_NUMBER", default="924471992")
+BCP_ACCOUNT = config("BCP_ACCOUNT", default="Consultar")
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

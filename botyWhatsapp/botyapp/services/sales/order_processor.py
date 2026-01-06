@@ -132,15 +132,18 @@ class OrderProcessor:
         order.save()
 
         # Mensaje con métodos de pago
-        message = (
+        msg_prefix = (
             f"✅ Dirección registrada: **{district}**\n\n"
+            f"Por favor realiza el abono al **{settings.YAPE_NUMBER}**.\n\n"
+        )
+        message = msg_prefix + (
             f"💳 **Resumen de Pago:**\n"
             f"   Productos: S/{order.subtotal:.0f}\n"
             f"   Envío: S/{shipping_cost:.0f}\n"
             f"   **Total: S/{order.total_amount:.0f}**\n\n"
             f"📱 **Métodos de pago disponibles:**\n"
-            f"1️⃣ Yape/Plin: {getattr(settings, 'YAPE_NUMBER', '999-999-999')}\n"
-            f"2️⃣ Transferencia BCP: {getattr(settings, 'BCP_ACCOUNT', '123-456-789')}\n"
+            f"1️⃣ Yape/Plin: {settings.YAPE_NUMBER}\n"
+            f"2️⃣ Transferencia BCP: {settings.BCP_ACCOUNT}\n"
             f"3️⃣ Contra-entrega (+S/5)\n\n"
             f"_Envía tu comprobante de pago o elige contra-entrega_"
         )
