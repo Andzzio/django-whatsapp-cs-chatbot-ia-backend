@@ -16,15 +16,41 @@ class CatalogTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Muestra el catálogo visual de productos al usuario. "
-            "ÚSALA INMEDIATAMENTE si el usuario pide ver productos, catálogo, ropa o comprar."
+            "Envía el catálogo visual de productos al usuario. "
+            "IMPORTANTE: Debes pasar el mensaje de introducción en el parámetro 'message'. "
+            "Este será el ÚNICO mensaje que verá el usuario, así que sé amable y vendedor."
         )
 
     @property
     def parameters_schema(self) -> types.Schema:
-        return types.Schema(type=types.Type.OBJECT, properties={}, required=[])
+        return types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "message": types.Schema(
+                    type=types.Type.STRING,
+                    description="El texto que acompañará al catálogo (ej: 'Aquí tienes nuestra colección exclusiva ✨')",
+                )
+            },
+            required=["message"],
+        )
 
     def execute(self, sender_id, **kwargs):
-        log.debug(f"🛒 Ejecutando CatalogTool para {sender_id}")
-        send_catalog_message(sender_id, "¡Aquí tienes el catálogo completo!")
-        return {"status": "executed", "action": "show_catalog"}
+        message = kwargs.get("message", "¡Aquí tienes el catálogo completo! 🛍️")
+        log.debug(f"🛒 Ejecutando CatalogTool para {sender_id} con mensaje: {message}")
+
+        # Enviar mensaje unificado (Catálogo + Texto)
+        result = send_catalog_message(sender_id, body_text=message)
+
+        if result:
+            # Retornamos un indicador especial para que el Engine sepa que ya "hablamos"
+            return {
+                "status": "executed",
+                "action": "show_catalog",
+                "sent_message": message,
+                "response_type": "interactive_response",  # Flag para el futuro si queremos silenciar al LLM
+            }
+        else:
+            return {
+                "status": "failed",
+                "error": "Could not send catalog message via WhatsApp API. Check server logs and CATALOG_ID.",
+            }

@@ -294,12 +294,7 @@ class MessageHandler:
 
                 send_whatsapp_message(sender_id, final_response)
 
-                # Guardar respuesta del bot en BD
-                Message.objects.create(
-                    contact=contact_obj,
-                    text=final_response,
-                    is_bot=True,
-                )
+                # Nota: send_whatsapp_message ya guarda en BD.
 
                 # Mostrar productos si el sistema lo recomienda
                 if sales_result.get("should_show_products"):

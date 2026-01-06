@@ -168,17 +168,20 @@ def sync_catalog_products(catalog_id):
                     """
 
                     # Actualizar DB local (ProductEmbedding) para búsquedas rápidas
-                    ProductEmbedding.objects.update_or_create(
-                        retailer_id=retailer_id,
-                        defaults={
-                            "product_name": product.get("name", "Sin nombre"),
-                            "price": price_val,
-                            "image_url": product.get("image_url", "") or "",
-                            "search_text": f"{product.get('name', '')} {product.get('description', '')}".lower(),
-                            # NO sobrescribir stock_quantity ni is_available aquí
-                            # para preservar valores editados desde el dashboard
-                        },
-                    )
+                    try:
+                        ProductEmbedding.objects.update_or_create(
+                            retailer_id=retailer_id,
+                            defaults={
+                                "product_name": product.get("name", "Sin nombre"),
+                                "price": price_val,
+                                "image_url": product.get("image_url", "") or "",
+                                "search_text": f"{product.get('name', '')} {product.get('description', '')}".lower(),
+                            },
+                        )
+                    except Exception as e:
+                        log.warning(
+                            f"⚠️ Error syncing ProductEmbedding SQL (no crítico): {e}"
+                        )
 
             # Verificar si hay más páginas
             url = data.get("paging", {}).get("next")

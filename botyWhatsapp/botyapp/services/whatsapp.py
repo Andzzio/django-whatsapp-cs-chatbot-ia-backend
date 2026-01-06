@@ -56,8 +56,8 @@ def send_whatsapp_message(
                     message_id=wamid,
                     reply_to=reply_to_obj,
                 )
-            except Contact.DoesNotExist:
-                pass
+            except Exception as e:
+                log.warning(f"⚠️ Error guardando mensaje en BD: {e}")
         return res_json
         return res_json
     except requests.exceptions.RequestException as e:
@@ -130,8 +130,8 @@ def send_catalog_message(receptor_wsp_id, body_text="¡Mira nuestro catálogo! �
                 message_type="catalog_message",
                 message_id=wamid,
             )
-        except Contact.DoesNotExist:
-            pass
+        except Exception as e:
+            log.warning(f"⚠️ Error guardando envío de catálogo en BD: {e}")
         return res_json
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar catálogo: {e}")
@@ -200,8 +200,8 @@ def send_product_message(
                 caption=json.dumps(caption_data) if caption_data else None,
                 message_id=wamid,
             )
-        except Contact.DoesNotExist:
-            pass
+        except Exception as e:
+            log.warning(f"⚠️ Error guardando producto en BD: {e}")
         return res_json
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar producto: {e}")
@@ -269,8 +269,8 @@ def send_product_list_message(
                 caption=json.dumps(sections),
                 message_id=wamid,
             )
-        except Contact.DoesNotExist:
-            pass
+        except Exception as e:
+            log.warning(f"⚠️ Error guardando lista de productos en BD: {e}")
         return res_json
     except requests.exceptions.RequestException as e:
         log.error(f"❌ Error al enviar lista de productos: {e}")

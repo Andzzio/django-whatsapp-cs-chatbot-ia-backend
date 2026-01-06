@@ -1,4 +1,5 @@
 import re
+import copy
 from google import genai
 from django.conf import settings
 from logger import log
@@ -90,14 +91,20 @@ class LLMEngine:
         return clean_history
 
     def _run_execution_loop(
-        self, sender_id, gemini_input, crm_info, text_body_context=None
+        self, sender_id, initial_gemini_input, crm_info, text_body_context=None
     ):
         """
         Núcleo unificado de ejecución: Pensar -> Ejecutar -> Repensar.
         Retorna el TEXTO FINAL de la respuesta.
         """
-        max_tool_turns = 3
+        gemini_input = copy.deepcopy(initial_gemini_input)
         final_text_response = None
+        should_stop_conversation_early = (
+            False  # Flag para detener si un tool ya respondió todo
+        )
+
+        # Maximos turnos de "pensamiento" (Chain of Thought/Tools)
+        max_tool_turns = 3
 
         for _ in range(max_tool_turns):
             try:
@@ -144,10 +151,13 @@ class LLMEngine:
                         # Ejecutar Tool Real
                         tool_result = {"error": "Tool not found"}
                         if fname in self._tool_map:
+                            log.info(f"⚙️ Ejecutando herramienta: {fname}")
                             try:
                                 tool_result = self._tool_map[fname].execute(
                                     sender_id, **fargs
                                 )
+                                if fname == "show_catalog":
+                                    should_stop_conversation_early = True
                             except Exception as e:
                                 log.error(f"❌ Error ejecutando tool {fname}: {e}")
                                 tool_result = {"error": str(e)}
@@ -172,6 +182,19 @@ class LLMEngine:
                     )
                     gemini_input.append({"role": "user", "parts": tool_outputs})
                     # ALERTA: No salimos del loop, volvemos al inicio para que el modelo vea el resultado
+
+                    # ⚠️ SUPPRESSION LOGIC (SINGLE BUBBLE ARCHITECTURE)
+                    # Si alguna herramienta ya envió una "interactive_response" (como CatalogTool),
+                    # ABORTAMOS el ciclo para que el LLM no añada texto redundante.
+                    # 'tool_name_executed' estaba definido en el scope superior (línea 123) y se actualiza en el loop.
+                    # Sin embargo, si hubo multiples tools, nos interesa la última o cualquiera que sea terminadora.
+
+                    if should_stop_conversation_early:
+                        log.info(
+                            "🚫 Deteniendo loop LLM porque show_catalog ya envió la respuesta unificada."
+                        )
+                        return None  # Retorna None para que NO se envíe nada más por texto plano
+
                 else:
                     break  # Algo raro pasó
 
