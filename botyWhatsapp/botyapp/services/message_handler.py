@@ -57,6 +57,12 @@ def handle_incoming_message(message_data):
                 text_body = interactive["button_reply"]["id"]  # Usamos ID como payload
             elif interactive["type"] == "list_reply":
                 text_body = interactive["list_reply"]["title"]  # O description id
+        elif message_type == "order":
+            # Pedido de Catálogo
+            order_details = message.get("order", {})
+            catalog_id = order_details.get("catalog_id")
+            product_items = order_details.get("product_items", [])
+            text_body = f"CATALOG_ORDER:{len(product_items)} items"
 
         log.info(
             f"📨 Msg received from {sender_id}: {text_body[:50]}... ({message_type})"
@@ -124,12 +130,19 @@ def handle_incoming_message(message_data):
             return
 
         # --- 3. STATE MACHINE ROUTER (THE NEW BRAIN) ---
+        extra_data = {}
+        if message_type == "order":
+            extra_data["product_items"] = message.get("order", {}).get(
+                "product_items", []
+            )
 
         # A. Si el usuario está atrapado en un estado transaccional (No-Initial),
         #    el FlowManager tiene prioridad ABSOLUTA.
         #    Excepción: Si FlowManager retorna False, significa que quiere liberar al LLM (raro).
         if contact.current_state != Contact.States.INITIAL:
-            handled = FlowManager.process(contact, text_body, message_type, media_id)
+            handled = FlowManager.process(
+                contact, text_body, message_type, media_id, extra_data
+            )
             if handled:
                 return  # El flujo manejó la respuesta. Fin.
 
@@ -142,7 +155,7 @@ def handle_incoming_message(message_data):
         # Si la intención es "Venta", forzamos la entrada al FlowManager
         if intent_result.action in ["show_catalog", "contact_support"]:
             # Dejamos que FlowManager decida cómo entrar al estado
-            FlowManager.process(contact, text_body, message_type, media_id)
+            FlowManager.process(contact, text_body, message_type, media_id, extra_data)
             return
 
         # --- 4. LLM FALLBACK (CHARLA LIBRE) ---

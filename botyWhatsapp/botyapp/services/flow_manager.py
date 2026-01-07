@@ -20,6 +20,7 @@ class FlowManager:
         message_body: str,
         message_type: str = "text",
         media_id: str = None,
+        extra_data: dict = None,
     ):
         """
         Punto de entrada único.
@@ -49,6 +50,15 @@ class FlowManager:
                 send_catalog_message(contact.phone, "¡Aquí tienes! 🛍️")
                 return True
 
+        # 0.2 INTERCEPTOR DE ORDENES (Catalog)
+        if message_type == "order":
+            # El usuario envió un carrito nativo de WhatsApp
+            # Creamos Proforma y Apagamos Bot
+            items = extra_data.get("product_items", []) if extra_data else []
+            return FlowManager._perform_handoff(
+                contact, "Pedido de Catálogo WhatsApp", items=items
+            )
+
         # 1. VALIDACIÓN MANUAL (Single Source of Truth)
         # La validación `is_bot_active` ya ocurrió en message_handler.
         # Aquí asumimos que si llegamos, el bot TIENE permiso para hablar.
@@ -66,6 +76,10 @@ class FlowManager:
         }
 
         handler = handler_map.get(state, FlowManager._handle_initial)
+        # Compatibility wrapper for handlers that don't accept extra_data yet (if any)
+        # But our handlers are static, we can just update them or ignore extra_data inside them.
+        # Actually, handlers receive (contact, text, msg_type, media_id).
+        # We should stick to that signature for most.
         return handler(contact, message_body, message_type, media_id)
 
     # ----------------------------------------------------------------------
@@ -223,7 +237,7 @@ class FlowManager:
     # ----------------------------------------------------------------------
 
     @staticmethod
-    def _perform_handoff(contact, text):
+    def _perform_handoff(contact, text, items=None):
         """
         Executes the 'Zero-Interference' Handoff.
         1. Creates Order (WAITING_AGENT).
@@ -238,7 +252,7 @@ class FlowManager:
         )  # Use text as fallback name
 
         # 2. Crear Orden (Pending Agent)
-        from botyapp.models import Order, OrderItem
+        from botyapp.models import Order, OrderItem, ProductEmbedding
 
         # Create minimal order structure
         order = Order.objects.create(
@@ -248,13 +262,37 @@ class FlowManager:
             payment_proof="WAITING_AGENT_INTERVENTION",
         )
 
-        # Add placeholder item
-        OrderItem.objects.create(
-            order=order,
-            product_name=selected_product,  # Name from context or text
-            price=0,  # Agent fixes price
-            quantity=1,
-        )
+        if items:
+            # Create Real Items
+            for item in items:
+                retailer_id = item.get("product_retailer_id")
+                qty = item.get("quantity", 1)
+                unit_price = item.get("item_price", 0)
+
+                # Fetch Name from DB
+                name = "Producto de Catálogo"
+                product = ProductEmbedding.objects.filter(
+                    retailer_id=retailer_id
+                ).first()
+                if product:
+                    name = product.product_name
+
+                OrderItem.objects.create(
+                    order=order,
+                    product_name=name,
+                    price=unit_price,
+                    quantity=qty,
+                    # No size info in standard catalog order usually, strictly depends on catalog set up.
+                    # We leave size None for agent to confirm.
+                )
+        else:
+            # Add placeholder item (Legacy/Generic Handoff)
+            OrderItem.objects.create(
+                order=order,
+                product_name=selected_product,  # Name from context or text
+                price=0,  # Agent fixes price
+                quantity=1,
+            )
 
         log.info(f"🚨 HOT LEAD: Handoff triggered for {contact.name}")
 
