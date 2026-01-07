@@ -1,6 +1,6 @@
 from django.utils import timezone
 from django.conf import settings
-from botyapp.models import Contact, Message
+from botyapp.models import Contact, Message, ProductEmbedding
 from botyapp.services.whatsapp import send_whatsapp_message, mark_whatsapp_read
 from botyapp.services.intent.classifier import intent_classifier
 from botyapp.services.flow_manager import FlowManager
@@ -62,7 +62,36 @@ def handle_incoming_message(message_data):
             order_details = message.get("order", {})
             catalog_id = order_details.get("catalog_id")
             product_items = order_details.get("product_items", [])
-            text_body = f"CATALOG_ORDER:{len(product_items)} items"
+
+            # Construir recibo legible (Estilo Dashboard)
+            lines = ["📋 *Pedido de Catálogo WhatsApp*", ""]
+            total = 0.0
+
+            for item in product_items:
+                retailer_id = item.get("product_retailer_id")
+                qty = item.get("quantity", 1)
+                price = float(item.get("item_price", 0))
+                currency = item.get("currency", "PEN")
+
+                # Buscar Nombre
+                product_name = "Producto"
+                try:
+                    p = ProductEmbedding.objects.filter(retailer_id=retailer_id).first()
+                    if p:
+                        product_name = p.product_name
+                except Exception:
+                    pass
+
+                line_total = price * qty
+                total += line_total
+                # Formato: • 2x Nombre - PEN 50.00
+                lines.append(f"• {qty}x {product_name} - {currency} {price:.2f}")
+
+            lines.append("")
+            lines.append(f"💰 *Total:* S/ {total:.2f}")
+            lines.append("🚚 *Envío:* Procesando según ubicación 📍")
+
+            text_body = "\n".join(lines)
 
         log.info(
             f"📨 Msg received from {sender_id}: {text_body[:50]}... ({message_type})"

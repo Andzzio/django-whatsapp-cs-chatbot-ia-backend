@@ -294,13 +294,23 @@ class FlowManager:
                 quantity=1,
             )
 
+        # 3. Calculate Totals (Fix for S/0.00 issue)
+        order.calculate_totals()
+
         log.info(f"🚨 HOT LEAD: Handoff triggered for {contact.name}")
 
         # 3. Notificar y Bloquear (Make it sound like a human checking stock)
-        send_whatsapp_message(
-            contact.phone,
-            "¡Excelente elección! 🛍️✨\n\nDéjame verificar el stock en almacén ahora mismo. 🧐\n\nEn unos minutos te confirmo los detalles para coordinar el envío. ⏳",
-        )
+
+        confirmation_msg = "¡Excelente elección! 🛍️✨\n\nDéjame verificar el stock en almacén ahora mismo. 🧐\n\nEn unos minutos te confirmo los detalles para coordinar el envío. ⏳"
+
+        # Si es pedido de catálogo (tiene items), incluimos el resumen que viene en 'text'
+        if items and "📋 *Pedido de Catálogo WhatsApp*" in text:
+            # Quitamos el prefijo técnico si existe o usamos el texto completo que ya está formateado
+            final_msg = f"{text}\n\n{confirmation_msg}"
+        else:
+            final_msg = confirmation_msg
+
+        send_whatsapp_message(contact.phone, final_msg)
 
         # Disable bot so the toggle turns OFF in the App
         contact.is_bot_active = False
