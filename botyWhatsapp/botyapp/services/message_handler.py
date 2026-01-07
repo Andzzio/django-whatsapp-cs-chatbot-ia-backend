@@ -84,8 +84,11 @@ def handle_incoming_message(message_data):
 
                 line_total = price * qty
                 total += line_total
-                # Formato: • 2x Nombre - PEN 50.00
-                lines.append(f"• {qty}x {product_name} - {currency} {price:.2f}")
+                # Formato: • 2x Nombre - PEN [TotalLinea] (Unitario c/u)
+                line_str = f"• {qty}x {product_name} - {currency} {line_total:.2f}"
+                if qty > 1:
+                    line_str += f" ({price:.2f} c/u)"
+                lines.append(line_str)
 
             lines.append("")
             lines.append(f"💰 *Total:* S/ {total:.2f}")
