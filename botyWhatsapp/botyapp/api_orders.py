@@ -143,7 +143,7 @@ def create_order(request, phone):
 
         # ✅ Auto-Send Confirmation Message (Fix for "No llegó al cliente")
         # Generar texto del recibo
-        lines = [f"📋 *Resumen de tu Pedido - SHURUMBA* ✨", ""]
+        lines = ["📋 *Resumen de tu Pedido - SHURUMBA* ✨", ""]
         lines.append(f"🆔 *Orden #{order.id}*")
         lines.append("")
         lines.append("👗 *Tus prendas:*")
