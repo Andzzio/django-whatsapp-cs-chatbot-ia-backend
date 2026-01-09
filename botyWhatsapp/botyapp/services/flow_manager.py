@@ -56,9 +56,8 @@ class FlowManager:
             # El usuario envió un carrito nativo de WhatsApp
             # Creamos Proforma y Apagamos Bot
             items = extra_data.get("product_items", []) if extra_data else []
-            return FlowManager._perform_handoff(
-                contact, "Pedido de Catálogo WhatsApp", items=items
-            )
+            # Pass message_body (Receipt) so it gets sent to the user
+            return FlowManager._perform_handoff(contact, message_body, items=items)
 
         # 1. VALIDACIÓN MANUAL (Single Source of Truth)
         # La validación `is_bot_active` ya ocurrió en message_handler.
