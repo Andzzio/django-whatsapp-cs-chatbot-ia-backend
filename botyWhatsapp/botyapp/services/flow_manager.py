@@ -1,4 +1,5 @@
 from botyapp.models import Contact
+from django.conf import settings
 from botyapp.services.whatsapp import (
     send_whatsapp_message,
     send_catalog_message,
@@ -317,6 +318,16 @@ class FlowManager:
         contact.needs_human_attention = True
         contact.save()
         FlowManager.transition_to(contact, Contact.States.LOCKED_HUMAN)
+
+        # 4. Notify Owner
+        details = ""
+        if items:
+            details = f"🛒 *Pedido de Catálogo*\nItems: {len(items)}"
+        else:
+            details = f"🛍️ *Interés de Compra*\nProducto: {selected_product}"
+
+        FlowManager._notify_owner(contact, "Oportunidad de Venta (HOT)", details)
+
         return True
 
     @staticmethod
@@ -327,6 +338,11 @@ class FlowManager:
         contact.is_bot_active = False
         contact.needs_human_attention = True
         FlowManager.transition_to(contact, Contact.States.LOCKED_HUMAN)
+        FlowManager._notify_owner(
+            contact,
+            "Cliente Solicita Asistencia",
+            "El usuario pidió hablar con un humano explícitamente.",
+        )
 
     @staticmethod
     def _handle_completed(contact, text, msg_type, media_id):
@@ -367,3 +383,29 @@ class FlowManager:
         log.info(
             f"🔄 State Transition: {old_state} -> {new_state} | User: {contact.phone}"
         )
+
+    @staticmethod
+    def _notify_owner(contact, reason, extra_info=""):
+        """
+        Notifies the business owner about a handoff event.
+        """
+        owner_phone = settings.OWNER_PHONE_NUMBER
+        if not owner_phone:
+            log.warning("⚠️ OWNER_PHONE_NUMBER not set. Skipping notification.")
+            return
+
+        msg = (
+            f"🔔 *ATENCIÓN: Intervención Requerida* 🔔\n\n"
+            f"👤 *Cliente:* {contact.name or 'Desconocido'} (+{contact.phone})\n"
+            f"📝 *Razón:* {reason}\n"
+            f"ℹ️ *Detalles:* {extra_info}\n\n"
+            f"⚠️ *Estado:* El bot se ha desactivado para este chat."
+        )
+        # create_db_record=False because this is an internal alert, not a chat message to the user/owner context really
+        # but if the owner uses the app, maybe they want to see it? Usually alerts are better kept out of the main chat flow logs if they clutter.
+        # However, `send_whatsapp_message` requires a valid phone.
+        try:
+            send_whatsapp_message(owner_phone, msg, create_db_record=False)
+            log.info(f"📤 Owner notified about {contact.phone}")
+        except Exception as e:
+            log.error(f"❌ Failed to notify owner: {e}")
