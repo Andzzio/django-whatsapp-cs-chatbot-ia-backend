@@ -12,6 +12,9 @@ def reset_orders(request):
     CUIDADO: Elimina TODOS los pedidos de la base de datos.
     Usar solo para limpiar datos de prueba.
     """
+    if not settings.DASH_TOKEN or settings.DASH_TOKEN == "NO":
+        return JsonResponse({"error": "Reset disabled in production"}, status=403)
+
     token = request.headers.get("Authorization")
     if token != settings.DASH_TOKEN:
         return JsonResponse({"error": "Unauthorized"}, status=403)

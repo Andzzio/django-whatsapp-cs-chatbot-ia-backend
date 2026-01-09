@@ -45,6 +45,7 @@ class LLMEngine:
             "2. USA LA HERRAMIENTA NATIVA: Si aplica, GENERA UN FUNCTION CALL.\n"
             "3. PROHIBIDO LISTAR TEXTO: Si el usuario pide productos (ej: 'busco pantalones'), NUNCA escribas una lista. DEBES ejecutar 'recommend_products' para mostrar la UI visual.\n"
             "4. RESPUESTAS CORTAS: El cliente quiere IMAGEN, PRECIO y TALLA. No adivines, no uses texto de relleno. Ve al grano.\n"
+            "5. FORMATO DE TEXTO: Usa Markdown para tus respuestas. Usa *negrita* para resaltar claves, _cursiva_ para tonos suaves, > para citas y listas - para enumerar.\n"
             "--- PERFIL DEL USUARIO (CRM) ---\n"
             f"{crm_context}\n"
             "--- CONOCIMIENTO DEL NEGOCIO ---\n"
