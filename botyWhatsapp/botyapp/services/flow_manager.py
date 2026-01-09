@@ -466,4 +466,28 @@ class FlowManager:
             send_whatsapp_message(owner_phone, msg, create_db_record=False)
             log.info(f"📤 Owner notified about {contact.phone}")
         except Exception as e:
-            log.error(f"❌ Failed to notify owner: {e}")
+            log.error(f"❌ Failed to notify owner via WhatsApp: {e}")
+
+        # --- DB NOTIFICATION (For Dashboard) ---
+        try:
+            from botyapp.models import OwnerNotification
+
+            # Enrich Metadata
+            meta = {
+                "source": "flow_manager",
+                "phone": contact.phone,
+                "name": contact.name,
+                "tags": contact.tags,
+                "extra_info": extra_info,
+            }
+
+            OwnerNotification.objects.create(
+                title=f"🔔 {reason}",
+                body=f"Cliente: {contact.name} ({contact.phone})\n{extra_info}",
+                contact=contact,
+                notification_type=OwnerNotification.Type.HANDOFF,
+                metadata=meta,
+            )
+            log.info("✅ Notification saved to DB")
+        except Exception as e:
+            log.error(f"❌ Failed to save DB notification: {e}")

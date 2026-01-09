@@ -15,7 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
-from django.urls import path
+from django.urls import path, include
 import botyapp.views
 from botyapp import (
     api,
@@ -27,10 +27,16 @@ from botyapp import (
     api_stock,
     api_orders_stock,
     api_products_excel,
+    api_notifications,
 )
+from rest_framework import routers
+
+router = routers.DefaultRouter()
+router.register(r"api/notifications", api_notifications.NotificationViewSet)
 
 urlpatterns = [
     # path('admin/', admin.site.urls),
+    path("", include(router.urls)),
     path("", botyapp.views.health_check, name="health_check"),
     path("webhook/", botyapp.views.whatsapp_webhook, name="whatsapp_webhook_meta"),
     path("api/chat-history/", api.get_chat_history, name="get_chat_history"),

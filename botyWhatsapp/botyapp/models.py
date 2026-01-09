@@ -311,3 +311,33 @@ class Snippet(models.Model):
 
     def __str__(self):
         return f"{self.shortcut} -> {self.content[:20]}..."
+
+
+class OwnerNotification(models.Model):
+    class Type(models.TextChoices):
+        HANDOFF = "handoff", "Handoff / Asesor"
+        SYSTEM = "system", "Sistema"
+        ORDER = "order", "Nuevo Pedido"
+
+    title = models.CharField(max_length=200)
+    body = models.TextField()
+    contact = models.ForeignKey(
+        Contact,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="notifications",
+    )
+    link = models.CharField(max_length=255, null=True, blank=True)  # Deep link or info
+    metadata = models.JSONField(default=dict, blank=True)  # Enriched data
+
+    notification_type = models.CharField(
+        max_length=20,
+        choices=Type.choices,
+        default=Type.SYSTEM,
+    )
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"[{self.notification_type}] {self.title}"

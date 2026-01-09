@@ -76,6 +76,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "botyapp",
     "channels",
+    "rest_framework",
 ]
 
 ASGI_APPLICATION = "botyWhatsapp.asgi.application"
