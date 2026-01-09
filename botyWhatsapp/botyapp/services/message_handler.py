@@ -7,6 +7,8 @@ from botyapp.services.flow_manager import FlowManager
 from botyapp.services.llm.engine import LLMEngine
 from logger import log
 import threading
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 
 def handle_incoming_message(message_data):
@@ -54,7 +56,9 @@ def handle_incoming_message(message_data):
             # Botones y Listas
             interactive = message["interactive"]
             if interactive["type"] == "button_reply":
-                text_body = interactive["button_reply"]["id"]  # Usamos ID como payload
+                text_body = interactive["button_reply"][
+                    "title"
+                ]  # Usamos Titulo para consistencia visual en Dashboard
             elif interactive["type"] == "list_reply":
                 text_body = interactive["list_reply"]["title"]  # O description id
         elif message_type == "order":
@@ -99,6 +103,26 @@ def handle_incoming_message(message_data):
         log.info(
             f"📨 Msg received from {sender_id}: {text_body[:50]}... ({message_type})"
         )
+
+        # --- WEBSOCKET BROADCAST ---
+        try:
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                "dashboard_feed",
+                {
+                    "type": "dashboard_update",
+                    "type_msg": "new_message",
+                    "message": {
+                        "phone": sender_id,
+                        "text": text_body[:100],
+                        "timestamp": str(timestamp),
+                        "type": message_type,
+                        "unread_count": 1,  # Frontend will calculate total, this is just a ping
+                    },
+                },
+            )
+        except Exception as e:
+            log.warning(f"WS Broadcast failed: {e}")
 
         # --- 1. GESTIÓN DE CONTACTO & DEDUPLICACIÓN ---
         # Optimization: get name from profile only if not exists

@@ -30,6 +30,8 @@ typing_extensions==4.15.0
 tzdata==2025.2
 urllib3==2.5.0
 websockets==15.0.1
+channels==4.0.0
+daphne==4.1.0
 Pillow==11.0.0
 
 dj-database-url==2.1.0

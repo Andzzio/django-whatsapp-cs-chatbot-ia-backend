@@ -4,6 +4,7 @@ from django.conf import settings
 from .models import Contact, Order, OrderItem, ProductEmbedding
 import json
 from logger import log
+from botyapp.services.whatsapp import send_whatsapp_message
 
 
 @csrf_exempt
@@ -139,6 +140,38 @@ def create_order(request, phone):
                     log.info(f"✅ Stock auto-deducted for new order #{order.id}")
             except Exception as e:
                 log.error(f"❌ Critical error auto-deducting stock: {e}")
+
+        # ✅ Auto-Send Confirmation Message (Fix for "No llegó al cliente")
+        # Generar texto del recibo
+        lines = [f"📋 *Resumen de tu Pedido - SHURUMBA* ✨", ""]
+        lines.append(f"🆔 *Orden #{order.id}*")
+        lines.append("")
+        lines.append("👗 *Tus prendas:*")
+
+        for item in items:
+            p_name = item.get("name", "Producto")
+            p_qty = item.get("quantity", 1)
+            p_price = item.get("price", 0)
+            p_size = item.get("size", "N/A")
+            lines.append(f"- {p_qty}x {p_name} ({p_size}) - S/{p_price}")
+
+        lines.append("")
+        if order.shipping_cost > 0:
+            lines.append(f"🚚 *Envío:* S/{order.shipping_cost}")
+
+        lines.append("---------------------")
+        lines.append(f"💰 *TOTAL A PAGAR: S/{order.total_amount}*")
+        lines.append("")
+        lines.append("¡Gracias por elegirnos! 💖")
+
+        receipt_text = "\n".join(lines)
+
+        # Enviar mensaje
+        try:
+            send_whatsapp_message(contact.phone, receipt_text)
+            log.info(f"📤 Receipt sent for Order #{order.id}")
+        except Exception as e:
+            log.error(f"❌ Failed to send receipt for Order #{order.id}: {e}")
 
         # No generamos mensaje de texto aquí. El frontend se encarga de la presentación.
         # Solo devolvemos la data estructurada.

@@ -203,6 +203,29 @@ class FlowManager:
             )
             return True
 
+        # 2a. Handle specific Image Handoff Action (Button Click)
+        # Como MessageHandler ahora guarda el TITLE, comprobamos el texto del botón
+        if (
+            text_lower == "contactar asesor"
+            or text_lower == "hablar con asesor"
+            or text_lower == "contactar"
+        ):
+            return FlowManager._perform_image_handoff(
+                contact, "Usuario solicitó revisión de imagen"
+            )
+
+        if (
+            text_lower == "ver catálogo"
+            or text_lower == "ver catalogo"
+            or text_lower == "catalogo"
+        ):
+            # Mostrar catálogo completo
+            from botyapp.services.catalog import send_full_catalog
+
+            send_full_catalog(contact.phone)
+            # Mantenemos estado o enviamos mensaje de seguimiento?
+            return True
+
         # Check Confirmation (HOT LEAD)
         buy_keywords = [
             "quiero",
@@ -220,6 +243,13 @@ class FlowManager:
         if is_buy_signal:
             return FlowManager._perform_handoff(contact, text)
 
+        # 2a. Handle specific Image Handoff Action (Button Click)
+        # Como MessageHandler ahora guarda el TITLE, comprobamos el texto del botón
+        if text_lower == "contactar asesor" or text_lower == "hablar con asesor":
+            return FlowManager._perform_image_handoff(
+                contact, "Usuario solicitó revisión de imagen"
+            )
+
         # Fallback (Ambiguous)
         send_whatsapp_message(
             contact.phone,
@@ -235,6 +265,32 @@ class FlowManager:
     # ----------------------------------------------------------------------
     # HANDOFF LOGIC (The "Goal")
     # ----------------------------------------------------------------------
+
+    @staticmethod
+    def _perform_image_handoff(contact, reason):
+        """
+        Handoff específico para cuando envían imagen y piden asesor.
+        """
+        FlowManager._update_lead_status(contact, "HOT")
+
+        # 1. Mensaje al Cliente (Personalizado SHURUMBA)
+        msg = (
+            "Entendido, estoy contactando a una especialista de ventas para que revise tu foto. 👩‍💻👗\n\n"
+            "Ella te responderá por aquí en unos minutos con las mejores opciones para ti. ¡Gracias por la espera! ✨"
+        )
+        send_whatsapp_message(contact.phone, msg)
+
+        # 2. Desactivar Bot
+        contact.is_bot_active = False
+        contact.needs_human_attention = True
+        contact.save()
+        FlowManager.transition_to(contact, Contact.States.LOCKED_HUMAN)
+
+        # 3. Notificar Dueño (Contexto Imagen)
+        extra = "📸 Cliente envió foto y pide asesoría personalizada."
+        FlowManager._notify_owner(contact, "Revisión de Imagen (HOT)", extra)
+
+        return True
 
     @staticmethod
     def _perform_handoff(contact, text, items=None):
@@ -299,8 +355,7 @@ class FlowManager:
 
         log.info(f"🚨 HOT LEAD: Handoff triggered for {contact.name}")
 
-        # 3. Notificar y Bloquear (Make it sound like a human checking stock)
-
+        # 3. Notificar y Bloquear
         confirmation_msg = "¡Excelente elección! 🛍️✨\n\nDéjame verificar el stock en almacén ahora mismo. 🧐\n\nEn unos minutos te confirmo los detalles para coordinar el envío. ⏳"
 
         # Si es pedido de catálogo (tiene items), incluimos el resumen que viene en 'text'
