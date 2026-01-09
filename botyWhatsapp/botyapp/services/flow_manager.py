@@ -424,7 +424,7 @@ class FlowManager:
         ]
         send_interactive_buttons(
             contact.phone,
-            "📸 Imagen recibida.\n\n¿Deseas que un asesor revise est@ foto o prefieres ver nuestro catálogo?",
+            "¡He recibido tu foto! 📸 ¿Cómo te gustaría proceder? 👇",
             buttons,
         )
         return True

@@ -529,7 +529,7 @@ def send_interactive_buttons(sender_id, body_text, buttons):
             # Store as text for simplicity
             Message.objects.create(
                 contact=contact_obj,
-                text=f"*Bot envió opciones: {body_text}*",
+                text=body_text,
                 is_bot=True,
                 message_type="interactive",
                 message_id=wamid,
