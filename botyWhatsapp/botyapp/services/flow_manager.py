@@ -321,7 +321,11 @@ class FlowManager:
         # 4. Notify Owner
         details = ""
         if items:
-            details = f"🛒 *Pedido de Catálogo*\nItems: {len(items)}"
+            # Si tenemos el recibo completo en 'text', se lo enviamos al dueño
+            if "📋" in text:
+                details = text
+            else:
+                details = f"🛒 *Pedido de Catálogo*\nItems: {len(items)}"
         else:
             details = f"🛍️ *Interés de Compra*\nProducto: {selected_product}"
 
