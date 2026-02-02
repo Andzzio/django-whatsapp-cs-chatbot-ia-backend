@@ -5,4 +5,19 @@ venv/
 # DATA BASE TEMP
 db.sqlite3
 # CACHE
-__pycache__
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
