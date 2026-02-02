@@ -1,0 +1,47 @@
+version: "3.8"
+
+services:
+  # Servicio de Base de Datos (PostgreSQL)
+  db:
+    image: postgres:15-alpine
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=shurumbadb
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=shurumbapass
+    ports:
+      - "5432:5432" # Exponer puerto interno 5432 al externo 5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Servicio del Bot (Django)
+  web:
+    build: .
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=1
+      - SECRET_KEY=django-insecure-local-dev-key
+      - ALLOWED_HOSTS=*
+      # Conexión a la base de datos 'db' definida arriba
+      - DATABASE_URL=postgres://postgres:shurumbapass@db:5432/shurumbadb
+      # Variables del Bot (se pueden sobrescribir con un archivo .env si se prefiere)
+      - WHATSAPP_API_TOKEN=${WHATSAPP_API_TOKEN}
+      - ID_NUMERO=${ID_NUMERO}
+      - ID_CUENTA=${ID_CUENTA}
+      - VERIFY_TOKEN=${VERIFY_TOKEN}
+      - IA_TOKEN=${IA_TOKEN}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
