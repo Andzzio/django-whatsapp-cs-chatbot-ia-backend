@@ -75,7 +75,7 @@ def get_dashboard_stats(request):
 
         # 6. Producto Top (Ya estaba optimizado con queries, mantenemos)
         top_product_qs = (
-            OrderItem.objects.filter(created_at__gte=today_start)
+            OrderItem.objects.filter(order__created_at__gte=today_start)
             .values("product_name")
             .annotate(count=Count("id"))
             .order_by("-count")
